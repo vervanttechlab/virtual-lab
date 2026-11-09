@@ -3,7 +3,7 @@ import { CONFIG } from "./config.js";
 import { call, trainerCall, sendOrQueue, session, trainer, demoMode, queue, onQueue, apiUrl, NetError } from "./api.js";
 import { Workbook } from "./workbook.js";
 import { SheetUI } from "./grid.js";
-import { el, esc, modal, toast, store, sha, timeAgo } from "./ui.js";
+import { el, esc, modal, toast, store, sha, timeAgo, icon } from "./ui.js";
 
 const C = window.DAL3Check;
 const app = document.getElementById("app");
@@ -51,44 +51,50 @@ const isOpen = (cfg, tag, item) => !cfg.enabled || !!(cfg.enabled[tag] && cfg.en
 
 // ------------------------------------------------------------------ shell
 function shell(title, back, ...body) {
+  let cls = "page narrow";
+  if (body.length && body[body.length - 1] && body[body.length - 1].__cls) cls = body.pop().__cls;
   const s = session.get();
   const qn = queue.list().length;
-  const pend = el("span", { class: "pending" + (qn ? " show" : ""), title: "Work waiting to be sent (offline)" }, `☁ ${qn} waiting`);
-  onLeave(onQueue((n) => { pend.textContent = `☁ ${n} waiting`; pend.classList.toggle("show", n > 0); }));
-  const head = el("header", { class: "appbar" },
-    back ? el("a", { class: "back", href: back, "aria-label": "Back" }, "‹") : el("span", { class: "logo" }, "DAL3"),
-    el("div", { class: "title" }, title),
-    pend,
-    demoMode() ? el("span", { class: "badge warn", title: "No server configured: work stays on this device" }, "DEMO") : "",
-    s ? el("button", { class: "user", type: "button", onclick: () => accountMenu() }, (s.name || s.id).split(" ")[0]) : "");
-  app.replaceChildren(head, el("main", { class: "page" }, ...body));
+  const pend = el("span", { class: "tb-flag unsent" + (qn ? " show" : ""), title: "Work saved on this device, waiting for a connection" }, `${qn} UNSENT`);
+  onLeave(onQueue((n) => { pend.textContent = `${n} UNSENT`; pend.classList.toggle("show", n > 0); }));
+  const parts = String(title).split(" › ");
+  const crumbs = el("div", { class: "crumbs" }, ...parts.flatMap((t, i) => [i ? el("span", { class: "sep" }, "/") : "",
+    el("span", { class: i === parts.length - 1 ? "cur" : "" }, t)]));
+  const head = el("header", { class: "titlebar" },
+    back ? el("a", { class: "tb-btn", href: back, "aria-label": "Back", title: "Back" }, icon("back")) : "",
+    el("a", { class: "tb-btn brand", href: "#/" }, "DAL3 LAB"),
+    crumbs, pend,
+    demoMode() ? el("span", { class: "tb-flag", title: "No class server configured: work stays on this device" }, "DEMO") : "",
+    s ? el("button", { class: "tb-btn tb-user", type: "button", onclick: () => accountMenu() }, s.id) : "");
+  app.replaceChildren(head, el("main", { class: cls }, ...body));
   window.scrollTo(0, 0);
 }
 function accountMenu() {
   const s = session.get();
-  const box = el("div", { class: "stack" },
-    el("p", {}, `Signed in as ${s.name || s.id} (${s.id})`),
-    el("button", { class: "btn wide", type: "button", onclick: () => { m.close(); location.hash = "#/trainer"; } }, "Trainer board"),
+  const box = el("div", { class: "form" },
+    el("p", {}, el("b", {}, s.name || s.id), el("span", { class: "muted" }, `  ${s.id}${s.section ? " · " + s.section : ""}`)),
+    el("div", { class: "actions" },
+    el("button", { class: "btn", type: "button", onclick: () => { m.close(); location.hash = "#/trainer"; } }, "Trainer board"),
     el("button", { class: "btn wide danger", type: "button", onclick: () => {
       if (queue.list().length && !confirm("Some work is still waiting to be sent. Sign out anyway? It will be sent after you sign in again on this phone.")) return;
       session.clear(); m.close(); location.hash = "#/login";
-    } }, "Sign out"));
+    } }, "Sign out")));
   const m = modal("Account", box);
 }
 
 // ------------------------------------------------------------------ views
 async function viewLogin() {
-  const f = el("form", { class: "card form login" });
+  const f = el("form", { class: "form signin" });
   f.innerHTML = `
-    <h2>Welcome to the DAL3 Virtual Lab</h2>
-    <p class="muted">TESDA Data Analytics Level III · Tindahan ni Aling Nena</p>
+    <h2>Sign in</h2>
+    <p class="sub">DAL3 Virtual Lab · TESDA Data Analytics Level III</p>
     ${demoMode() ? `<p class="note">Demo mode: no class server is set up yet. Your work is saved on this device only.</p>
       <label>Your name <input name="name" required autocomplete="name"></label>` : `
       <label>Class code <input name="cls" required value="${esc(CONFIG.CLASS_CODE_HINT)}" autocapitalize="characters"></label>
       <label>Student ID <input name="sid" required autocapitalize="characters" autocomplete="username"></label>
       <label>PIN <input name="pin" required inputmode="numeric" type="password" autocomplete="current-password" maxlength="8"></label>`}
     <button class="btn primary wide" type="submit">Sign in</button>
-    <p class="muted small">Trainer? <a href="#/trainer">Open the trainer board</a></p>`;
+    <p class="small muted" style="margin:12px 0 0">Trainer? <a href="#/trainer">Open the trainer board</a></p>`;
   shell("Sign in", null, f);
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -116,56 +122,65 @@ async function viewLogin() {
 
 async function viewHome() {
   const [idx, cfg] = await Promise.all([getIndex(), loadConfig(true)]);
-  const list = el("div", { class: "cards" });
-  for (const d of idx.days) {
+  const rows = idx.days.map((d) => {
     const open = d.activities.filter((a) => isOpen(cfg, d.tag, a.id)).length;
     const res = cfg.results[d.tag] || {};
     const done = Object.keys(res).filter((k) => k !== "quiz").length;
-    list.append(el("a", { class: "card daycard", href: `#/day/${d.day}` },
-      el("div", { class: "daynum" }, `Day ${d.day}`),
-      el("div", {}, el("h3", {}, d.title), el("p", { class: "muted small" }, d.unit),
-        el("p", { class: "small" }, cfg.enabled ? `${open} of ${d.activities.length} activities open · ${done} submitted` : `${d.activities.length} activities`))));
-  }
-  shell("DAL3 Virtual Lab", null,
-    el("section", { class: "hello" }, el("h2", {}, `Hi, ${(session.get().name || "").split(" ")[0] || "there"}!`),
-      el("p", { class: "muted" }, cfg.offline ? "You are offline. You can keep working; your answers are sent when you are back online." :
-        "Choose a day. Activities your trainer has opened are ready to do.")),
-    list,
-    el("p", { class: "muted small center" }, "Days 4–15 will appear here as the course goes on."));
+    return el("a", { class: "row daysrow", href: `#/day/${d.day}` },
+      el("div", { class: "num" }, `DAY ${String(d.day).padStart(2, "0")}`),
+      el("div", {}, el("div", { class: "title" }, d.title), el("div", { class: "sub" }, d.unit)),
+      el("div", { class: "status c-count" }, cfg.enabled ? [el("span", { class: "tag" + (open ? " good" : "") }, `${open}/${d.activities.length} OPEN`),
+        done ? el("span", { class: "tag info" }, `${done} SUBMITTED`) : ""] : el("span", { class: "tag" }, `${d.activities.length} ACTIVITIES`)),
+      el("div", { class: "chev" }, icon("chev")));
+  });
+  shell("Home", null,
+    el("div", { class: "pagehead" }, el("div", { class: "kicker" }, "Data Analytics Level III"),
+      el("h2", {}, `Welcome, ${(session.get().name || "").split(" ")[0] || "trainee"}`),
+      el("div", { class: "meta" }, cfg.offline ? "Offline. Keep working: answers are sent when the connection returns." :
+        "Activities appear as your trainer opens them.")),
+    el("div", { class: "label" }, "Training days"),
+    el("div", { class: "list" }, ...rows),
+    el("p", { class: "small muted", style: "margin-top:10px" }, "Days 4 to 15 are added as the course progresses."));
 }
 
 async function viewDay(n) {
   const [day, cfg] = await Promise.all([getDay(n), loadConfig(true)]);
   const tag = day.tag, res = cfg.results[tag] || {}, local = store.get(K.res(tag), {});
+  const statusOf = (open, r, l) => {
+    if (!open) return [el("span", { class: "tag" }, "CLOSED"), el("span", { class: "muted" }, "Opens when the trainer starts it")];
+    if (r) return [el("span", { class: "tag good" }, "SUBMITTED"), el("span", {}, fmtScore(r))];
+    if (l && l.pending) return [el("span", { class: "tag warn" }, "UNSENT"), el("span", { class: "muted" }, "Sends when online")];
+    if (l && l.checked) return [el("span", { class: "tag info" }, "IN PROGRESS"), el("span", {}, `${Math.round(100 * l.checked.auto / Math.max(1, l.checked.autoMax))}% correct`)];
+    return [el("span", { class: "tag" }, "NOT STARTED")];
+  };
   const rows = day.activities.map((a) => {
-    const open = isOpen(cfg, tag, a.id);
-    const r = res[a.id], l = local[a.id];
-    let status = "Not started";
-    if (r) status = `Submitted · ${fmtScore(r)}`;
-    else if (l && l.pending) status = "Submitted · waiting to send";
-    else if (l && l.checked) status = `In progress · ${Math.round(100 * l.checked.auto / Math.max(1, l.checked.autoMax))}% correct so far`;
-    return el(open ? "a" : "div", { class: "card actrow" + (open ? "" : " locked"), href: open ? `#/act/${n}/${a.id}` : null },
-      el("div", { class: "actid" }, a.id),
-      el("div", { class: "grow" }, el("h3", {}, a.title), el("p", { class: "muted small" }, `${a.mode} · ${a.minutes} min · ${a.points} pts`),
-        el("p", { class: "small status" }, open ? status : "🔒 Not open yet: your trainer will open it"),
-        r && r.feedback ? el("p", { class: "feedback" }, "Trainer: " + r.feedback) : ""),
-      el("div", { class: "chev" }, open ? "›" : ""));
+    const open = isOpen(cfg, tag, a.id), r = res[a.id];
+    return el(open ? "a" : "div", { class: "row actsrow" + (open ? "" : " closed"), href: open ? `#/act/${n}/${a.id}` : null },
+      el("div", { class: "num" }, a.id),
+      el("div", { class: "title" }, a.title),
+      el("div", { class: "sub c-mode" }, a.mode), el("div", { class: "sub c-min" }, `${a.minutes} min`), el("div", { class: "sub c-pts" }, `${a.points} pts`),
+      el("div", { class: "status" }, ...statusOf(open, r, local[a.id])),
+      el("div", { class: "chev" }, open ? icon("chev") : icon("padlock")),
+      r && r.feedback ? el("div", { class: "feedback" }, "Trainer feedback: " + r.feedback) : "");
   });
-  const qOpen = isOpen(cfg, tag, "quiz");
-  const qr = res.quiz;
+  const qOpen = isOpen(cfg, tag, "quiz"), qr = res.quiz;
+  const head = el("div", { class: "listhead actsrow acts" }, el("div", {}, "No."), el("div", {}, "Activity"), el("div", {}, "Mode"),
+    el("div", {}, "Time"), el("div", {}, "Points"), el("div", {}, "Status"), el("div", {}));
   shell(`Day ${n}`, "#/",
-    el("section", { class: "dayhead" }, el("p", { class: "muted small" }, day.unit), el("h2", {}, day.title)),
-    el("div", { class: "quick" },
-      el("a", { class: "btn", href: `#/lesson/${n}` }, "📖 Lesson"),
-      el("a", { class: "btn", href: `#/sheet/${n}` }, "🧪 Practice sheet"),
-      CONFIG.VIDEOS[n] ? el("a", { class: "btn", href: CONFIG.VIDEOS[n], target: "_blank", rel: "noopener" }, "▶ Demo video") : ""),
-    el("h3", { class: "sec" }, "Activities"), ...rows,
-    el("h3", { class: "sec" }, "Self-check"),
-    el(qOpen ? "a" : "div", { class: "card actrow" + (qOpen ? "" : " locked"), href: qOpen ? `#/quiz/${n}` : null },
-      el("div", { class: "actid" }, "Q"),
-      el("div", { class: "grow" }, el("h3", {}, day.quiz.title), el("p", { class: "small status" },
-        !qOpen ? "🔒 Not open yet" : qr ? `Last score ${qr.auto}/${qr.autoMax}` : `${day.quiz.items.length} items · pass 80%`)),
-      el("div", { class: "chev" }, qOpen ? "›" : "")));
+    el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} · ${day.unit}`), el("h2", {}, day.title)),
+    el("div", { class: "toolrow" },
+      el("a", { class: "btn", href: `#/lesson/${n}` }, icon("book"), "Lesson"),
+      el("a", { class: "btn", href: `#/sheet/${n}` }, icon("grid"), "Practice workbook"),
+      CONFIG.VIDEOS[n] ? el("a", { class: "btn", href: CONFIG.VIDEOS[n], target: "_blank", rel: "noopener" }, icon("play"), "Demo video") : ""),
+    el("div", { class: "label" }, "Activities"), head, el("div", { class: "list" }, ...rows),
+    el("div", { class: "label" }, "Self-check"),
+    el("div", { class: "list", style: "border-top:1px solid var(--line)" },
+      el(qOpen ? "a" : "div", { class: "row actsrow" + (qOpen ? "" : " closed"), href: qOpen ? `#/quiz/${n}` : null },
+        el("div", { class: "num" }, "Q"), el("div", { class: "title" }, day.quiz.title),
+        el("div", { class: "sub c-mode" }, "Individual"), el("div", { class: "sub c-min" }, "20 min"), el("div", { class: "sub c-pts" }, `${day.quiz.items.length} items`),
+        el("div", { class: "status" }, ...(!qOpen ? [el("span", { class: "tag" }, "CLOSED")] : qr ? [el("span", { class: qr.auto / qr.autoMax >= 0.8 ? "tag good" : "tag warn" },
+          `${qr.auto}/${qr.autoMax}`), el("span", { class: "muted" }, "last attempt")] : [el("span", { class: "tag" }, "PASS MARK 80%")])),
+        el("div", { class: "chev" }, qOpen ? icon("chev") : icon("padlock")))));
 }
 const fmtScore = (r) => {
   const graded = r.manualMax ? (r.manual !== "" && r.manual != null) : true;
@@ -178,18 +193,18 @@ const round = (x) => Math.round(Number(x) * 10) / 10;
 async function viewLesson(n) {
   const day = await getDay(n);
   const secs = day.lesson.map((s, i) => {
-    const d = el("details", { class: "card lesson" }, el("summary", {}, s.h), el("div", { class: "prose", html: s.html }));
+    const d = el("details", { class: "lesson" }, el("summary", {}, s.h), el("div", { class: "prose", html: s.html }));
     if (i === 0) d.open = true;
     return d;
   });
-  shell(`Day ${n} · Lesson`, `#/day/${n}`, el("h2", {}, day.title), ...secs);
+  shell(`Day ${n} › Lesson`, `#/day/${n}`, el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} lesson`), el("h2", {}, day.title)), ...secs);
 }
 
 async function viewSheet(n) {
   const day = await getDay(n);
-  const host = el("div", { class: "sheethost full" });
-  shell(`Day ${n} · Practice sheet`, `#/day/${n}`,
-    el("p", { class: "muted small" }, "This is your Day " + n + " workbook. Activities use the same workbook, so your formulas here count too."),
+  const host = el("div", { class: "sheethost" });
+  shell(`Day ${n} › Practice workbook`, `#/day/${n}`,
+    el("p", { class: "small muted" }, `Your Day ${n} workbook. The activities use this same workbook, so formulas you enter here count there too.`),
     host);
   const wb = new Workbook(day, store.get(K.wb(day.tag)));
   const save = debounce(() => store.set(K.wb(day.tag), wb.serialize()), 600);
@@ -218,21 +233,27 @@ async function viewActivity(n, actId) {
   const touch = () => { dirty = true; saveLocal(); };
 
   // ---- left: steps + answers
-  const steps = el("details", { class: "card steps", open: true }, el("summary", {}, "Steps from the activity sheet"),
+  const EQUIV = [["F4", "Formulas › Lock Reference ($), or the $ F4 key"], ["Ctrl + D", "Home › Fill Down"], ["Ctrl + R", "Home › Fill Right"],
+    ["Double-click fill handle", "Home › Fill to End"], ["Shift + click", "Home › Select range, then select the last cell"],
+    ["Alt + =", "Formulas › AutoSum"], ["Insert › Chart", "Insert › Chart"], ["Data › Data Analysis", "Data › Data Analysis"],
+    ["Conditional Formatting", "Home › Highlight Cells"], ["Ctrl + Shift + %", "Home › Number Format › Percent"]];
+  const steps = el("div", { class: "task-sec steps" }, el("div", { class: "label" }, "Instructions"),
     el("div", { class: "prose", html: act.html }),
-    el("div", { class: "tips" }, el("b", {}, "In the lab app"), el("ul", {}, ...day.labTips.map((t) => el("li", {}, t)))));
+    el("details", {}, el("summary", { class: "small", style: "cursor:pointer;margin-top:8px;color:var(--info)" }, "Excel keys and their lab equivalents"),
+      el("table", { class: "equiv" }, el("thead", {}, el("tr", {}, el("th", {}, "In Excel"), el("th", {}, "In the lab"))),
+        el("tbody", {}, ...EQUIV.map(([x, y]) => el("tr", {}, el("td", { class: "mono" }, x), el("td", {}, y)))))));
   const partEls = {};
   const form = el("div", { class: "parts" });
   for (const p of act.parts) {
-    const box = el("div", { class: "card part", "data-part": p.id });
+    const box = el("div", { class: "part", "data-part": p.id });
     const head = el("div", { class: "phead" }, el("span", { class: "pprompt" }, p.prompt || p.label || ""),
-      el("span", { class: "ppts" }, `${p.points} pt${p.points === 1 ? "" : "s"}${p.manual ? " · trainer" : ""}`));
+      el("span", { class: "ppts" }, `${p.points} PT${p.points === 1 ? "" : "S"}${p.manual ? " · TRAINER" : ""}`));
     const fb = el("div", { class: "pfb" });
     box.append(head);
     if (p.type === "cells") {
       const refs = summarizeRefs(p.cells);
       box.append(el("p", { class: "small muted" }, `${p.cells.length} cells: ${refs}`));
-      const go = el("button", { class: "btn small", type: "button" }, "Go to the sheet");
+      const go = el("button", { class: "btn small", type: "button" }, icon("grid"), "Open in workbook");
       go.addEventListener("click", () => { showPane("sheet"); ui && ui.switchSheet(p.cells[0].split("!")[0]); });
       box.append(go);
     } else if (p.type === "num" || p.type === "list") {
@@ -268,23 +289,23 @@ async function viewActivity(n, actId) {
       }
       if (act.rubric) box.append(el("p", { class: "small muted" }, "Rubric: " + act.rubric));
     } else if (p.type === "spec") {
-      box.append(el("p", { class: "small muted" }, { chart: "Use the 📊 Chart button.", toolpak: "Use the 🧮 Analysis button.", highlight: "Use the 🖍 Highlight button." }[p.check] || ""));
+      box.append(el("p", { class: "small muted" }, { chart: "Workbook: Insert › Chart.", toolpak: "Workbook: Data › Data Analysis.", highlight: "Workbook: Home › Highlight Cells." }[p.check] || ""));
     }
     box.append(fb);
     partEls[p.id] = { box, fb };
     form.append(box);
   }
-  const left = el("div", { class: "pane pane-steps" }, steps, el("h3", { class: "sec" }, "Your answers"), form);
+  const left = el("div", { class: "pane pane-task" }, steps, el("div", { class: "task-sec" }, el("div", { class: "label" }, "Answers"), form));
   const right = needsSheet ? el("div", { class: "pane pane-sheet" }, el("div", { class: "sheethost" })) : null;
 
   // ---- bottom bar
-  const status = el("span", { class: "small muted" }, results[actId]?.pending ? "Submitted · waiting to send" :
-    results[actId]?.server ? `Submitted · ${fmtScore(results[actId].server)}` : "");
-  const btnCheck = el("button", { class: "btn", type: "button" }, "✓ Check");
+  const status = el("span", { class: "stxt" }, results[actId]?.pending ? "Submitted, waiting for a connection" :
+    results[actId]?.server ? `Submitted: ${fmtScore(results[actId].server)}` : "Ready");
+  const btnCheck = el("button", { class: "btn", type: "button" }, icon("check"), "Check");
   const btnSubmit = el("button", { class: "btn primary", type: "button" }, "Submit");
-  const bar = el("div", { class: "actbar" }, status, el("div", { class: "grow" }), btnCheck, btnSubmit);
+  const bar = el("div", { class: "statusbar" }, status, el("div", { class: "grow" }), btnCheck, btnSubmit);
 
-  const seg = el("div", { class: "seg", role: "tablist" });
+  const seg = el("div", { class: "switch", role: "tablist" });
   const panes = { steps: left, sheet: right };
   const showPane = (k) => {
     if (!panes[k]) return;
@@ -292,15 +313,15 @@ async function viewActivity(n, actId) {
     Object.entries(panes).forEach(([kk, p]) => p && p.classList.toggle("show", kk === k));
   };
   if (right) {
-    for (const [k, label] of [["steps", "Steps & answers"], ["sheet", "Sheet"]]) {
+    for (const [k, label] of [["steps", "Task"], ["sheet", "Workbook"]]) {
       const b = el("button", { type: "button", "data-k": k }, label);
       b.addEventListener("click", () => showPane(k));
       seg.append(b);
     }
   }
-  shell(`Activity ${act.id}`, `#/day/${n}`,
-    el("div", { class: "acthead" }, el("h2", {}, act.title), el("p", { class: "muted small" }, `${act.mode} · ${act.minutes} min · ${act.points} pts`)),
-    right ? seg : "", el("div", { class: "actgrid" + (right ? "" : " single") }, left, right || ""), bar);
+  shell(`Day ${n} › Activity ${act.id}`, `#/day/${n}`,
+    el("div", { class: "workhead" }, el("h2", {}, `${act.id}  ${act.title}`), el("span", { class: "meta" }, `${act.mode} · ${act.minutes} min · ${act.points} pts`)),
+    right ? seg : "", el("div", { class: "panes" + (right ? "" : " single") }, left, right || ""), bar, { __cls: "page work" });
   showPane("steps");
   if (right) {
     ui = new SheetUI(right.firstChild, wb, { sheet: act.sheet || undefined, onChange: touch });
@@ -338,7 +359,7 @@ async function viewActivity(n, actId) {
           (empty ? ` ${empty} still empty.` : "") + (right < p.cells.length ? " Wrong cells are red on the sheet." : " Great work!");
         for (const [ref, v] of Object.entries(d)) if (v !== -2) marks[ref] = v === 1 ? "ok" : "bad";
       } else {
-        fb.textContent = r.frac === 1 ? "✓ Correct" : p.type === "spec" ? "✗ Not found yet. Check the range and settings." : "✗ Not yet. Try again.";
+        fb.textContent = r.frac === 1 ? "Correct." : p.type === "spec" ? "Not found yet. Check the range and the settings." : "Not correct yet. Try again.";
       }
       box.classList.add(r.frac === 1 ? "good" : r.frac > 0 ? "half" : "bad");
     }
@@ -356,7 +377,7 @@ async function viewActivity(n, actId) {
     const { sub, score } = await evaluate();
     const manualEmpty = act.parts.filter((p) => p.manual && p.type === "text" && !(ans[p.id] || "").trim()).length;
     const msg = `Submit Activity ${act.id}?\n\nAuto-checked part: ${round(score.auto)} / ${round(score.autoMax)} pts` +
-      (score.manualMax ? `\nTrainer-graded part: ${score.manualMax} pts` : "") + (manualEmpty ? `\n\n⚠ ${manualEmpty} written answer(s) are still empty.` : "") +
+      (score.manualMax ? `\nTrainer-graded part: ${score.manualMax} pts` : "") + (manualEmpty ? `\n\nNote: ${manualEmpty} written answer(s) are still empty.` : "") +
       "\n\nYou can submit again later; the latest submission counts.";
     if (!confirm(msg)) return;
     showFeedback(score);
@@ -373,11 +394,11 @@ async function viewActivity(n, actId) {
       const r = await sendOrQueue("submit", body, { onDoneKey: null });
       if (r.sent) {
         results[actId] = { ...(results[actId] || {}), server: r.data.result, pending: false };
-        status.textContent = `Submitted · ${fmtScore(r.data.result)}`;
+        status.textContent = `Submitted: ${fmtScore(r.data.result)}`;
         toast("Submitted! Your trainer can see your work now.", "good");
       } else {
         results[actId] = { ...(results[actId] || {}), pending: true };
-        status.textContent = "Submitted · waiting to send";
+        status.textContent = "Submitted, waiting for a connection";
         toast("You are offline. Your work is saved and will be sent automatically.");
       }
       store.set(K.res(tag), results);
@@ -427,7 +448,7 @@ async function viewQuiz(n) {
   const saved = store.get(K.quiz(tag), { answers: {} });
   const form = el("form", { class: "quiz" });
   for (const it of day.quiz.items) {
-    const box = el("fieldset", { class: "card qitem", "data-n": it.n }, el("legend", {}, `${it.n}. ${it.q}`));
+    const box = el("fieldset", { class: "qitem", "data-n": it.n }, el("legend", {}, `${it.n}. ${it.q}`));
     if (it.type === "choice") {
       it.options.forEach((o, i) => {
         const L = "ABCD"[i];
@@ -442,10 +463,10 @@ async function viewQuiz(n) {
     }
     form.append(box);
   }
-  const result = el("div", { class: "card result", hidden: true });
-  const submit = el("button", { class: "btn primary wide", type: "submit" }, "Submit quiz");
-  form.append(submit);
-  shell(`Day ${n} · Quiz`, `#/day/${n}`, el("h2", {}, day.quiz.title), el("p", { class: "muted small" }, `${day.quiz.items.length} items · Passing score 80%`), result, form);
+  const result = el("div", { class: "result", hidden: true });
+  const submit = el("button", { class: "btn primary", type: "submit" }, "Submit quiz");
+  form.append(el("div", { class: "submitrow" }, submit));
+  shell(`Day ${n} › Quiz`, `#/day/${n}`, el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} · ${day.quiz.items.length} items · pass mark 80%`), el("h2", {}, day.quiz.title)), result, form);
   const collect = () => {
     const a = {};
     for (const it of day.quiz.items) {
@@ -458,8 +479,9 @@ async function viewQuiz(n) {
   const show = (r) => {
     result.hidden = false;
     const pass = r.score / r.max >= day.quiz.pass;
-    result.className = "card result " + (pass ? "good" : "bad");
-    result.innerHTML = `<h3>Score: ${r.score} / ${r.max} ${pass ? "· Passed 🎉" : "· Not yet: review the lesson and try again"}</h3>`;
+    result.className = "result " + (pass ? "good" : "bad");
+    result.innerHTML = `<h3>Score ${r.score} / ${r.max}</h3><p class="small muted" style="margin:2px 0 0">${pass ? "Passed (80% or higher)." :
+      "Below the 80% pass mark. Review the lesson, then try again."} Items marked red were incorrect.</p>`;
     for (const [nn, ok] of Object.entries(r.items || {})) form.querySelector(`[data-n="${nn}"]`)?.classList.toggle("wrong", !ok);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -485,12 +507,13 @@ async function viewTrainer() {
   const idx = await getIndex();
   const daySel = el("select", { "aria-label": "Day" }, ...idx.days.map((d) => el("option", { value: d.day }, `Day ${d.day}: ${d.title}`)));
   daySel.value = store.get("dal3_board_day") || idx.days[0].day;
-  const live = el("span", { class: "small muted" }, "");
-  const toggles = el("div", { class: "toggles" });
+  const live = el("span", { class: "livedot off" }, "Connecting");
+  const toggles = el("div", { class: "switches" });
   const table = el("div", { class: "board" });
-  const exportBtn = el("button", { class: "btn small", type: "button" }, "⬇ CSV");
-  const settings = el("button", { class: "btn small", type: "button" }, "⚙");
-  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), exportBtn, settings), toggles, table);
+  const legend = el("div", { class: "legend" });
+  const exportBtn = el("button", { class: "btn small", type: "button" }, icon("download"), "Export CSV");
+  const settings = el("button", { class: "btn small icon", type: "button", title: "Board settings", "aria-label": "Board settings" }, icon("gear"));
+  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), exportBtn, settings), toggles, table, legend, { __cls: "page work" });
   let data = null;
   settings.addEventListener("click", trainerSettings);
   daySel.addEventListener("change", () => { store.set("dal3_board_day", daySel.value); render(); });
@@ -499,12 +522,12 @@ async function viewTrainer() {
   async function refresh() {
     try {
       data = await trainerCall("progress");
-      live.textContent = `● live · updated ${new Date().toLocaleTimeString()}`;
-      live.className = "small live";
+      live.textContent = `Live · updated ${new Date().toLocaleTimeString()}`;
+      live.className = "livedot";
       render();
     } catch (e) {
-      live.textContent = "⚠ " + e.message;
-      live.className = "small bad";
+      live.textContent = e.message;
+      live.className = "livedot off";
       if (/trainer key/i.test(e.message)) { trainer.clear(); trainerLogin(); }
     }
   }
@@ -513,8 +536,9 @@ async function viewTrainer() {
     const day = await getDay(Number(daySel.value)), tag = day.tag;
     const items = [...day.activities.map((a) => ({ id: a.id, title: a.title, points: a.points })), { id: "quiz", title: "Quiz", points: day.quiz.items.length }];
     const en = (data.config[tag] || {});
-    toggles.replaceChildren(el("b", {}, "Open for students: "), ...items.map((it) => {
-      const b = el("button", { class: "toggle" + (en[it.id] ? " on" : ""), type: "button", title: it.title }, `${it.id === "quiz" ? "Quiz" : it.id} ${en[it.id] ? "ON" : "OFF"}`);
+    toggles.replaceChildren(el("span", { class: "lbl" }, "Open to students"), ...items.map((it) => {
+      const b = el("button", { class: "sw" + (en[it.id] ? " on" : ""), type: "button", title: `${it.title}: ${en[it.id] ? "open (click to close)" : "closed (click to open)"}`,
+        "aria-pressed": en[it.id] ? "true" : "false" }, it.id === "quiz" ? "QUIZ" : it.id);
       b.addEventListener("click", async () => {
         b.disabled = true;
         try { await trainerCall("setConfig", { day: tag, item: it.id, enabled: !en[it.id] }); await refresh(); }
@@ -538,14 +562,14 @@ async function viewTrainer() {
           const graded = !s.manualMax || (s.manual !== "" && s.manual != null);
           const pts = Number(s.auto) + Number(s.manual || 0), max = Number(s.autoMax) + Number(s.manualMax || 0);
           total += pts;
-          txt = `${round(pts)}/${round(max)}${graded ? "" : " ⏳"}`;
+          txt = `${round(pts)}/${round(max)}${graded ? "" : "*"}`;
           cls = pts / Math.max(1, max) >= 0.8 ? "good" : pts / Math.max(1, max) >= 0.5 ? "half" : "bad";
-          if (!graded && !Number(s.autoMax)) { txt = "⏳ grade"; cls = "pend"; }       // all-written activity: not a fail, just waiting
-          if (s.late) txt += " ⏰";
+          if (!graded && !Number(s.autoMax)) { txt = "TO GRADE"; cls = "pend"; }    // all-written activity: not a fail, just waiting
+          if (s.late) txt += " LATE";
           title = `Submitted ${timeAgo(s.ts)} · attempt ${s.attempts}` + (graded ? "" : " · needs grading");
         } else if (l) {
           const fresh = Date.now() - new Date(l.updated).getTime() < 3 * 60000;
-          txt = `✎ ${l.pct}%`;
+          txt = `${l.pct}%`;
           cls = "draft" + (fresh ? " fresh" : "");
           title = `Working · last saved ${timeAgo(l.updated)}`;
         }
@@ -553,11 +577,13 @@ async function viewTrainer() {
         if (s || l) { td.tabIndex = 0; td.addEventListener("click", () => openDetail(st, day, it, s, l)); }
         return td;
       });
-      return el("tr", {}, el("th", { class: "sname" }, el("div", {}, st.name), el("div", { class: "small muted" }, st.id)), ...tds,
-        el("td", { class: "total" }, round(total)), el("td", { class: "small muted" }, last ? timeAgo(last) : "—"));
+      return el("tr", {}, el("th", { class: "sname" }, st.name, el("span", { class: "sid" }, st.id)), ...tds,
+        el("td", { class: "total" }, round(total)), el("td", { class: "when" }, last ? timeAgo(last) : "—"));
     });
-    table.replaceChildren(el("table", { class: "boardtable" }, el("thead", {}, thead), el("tbody", {}, ...rows)),
-      el("p", { class: "small muted" }, "✎ = working now (live progress = % of auto-checked points correct) · ⏳ = written answers waiting for your grade · ⏰ = submitted while the activity was closed · tap a cell to see the student's work."));
+    table.replaceChildren(el("table", { class: "boardtable" }, el("thead", {}, thead), el("tbody", {}, ...rows)));
+    legend.replaceChildren(el("span", { class: "lg-good" }, "80% or more"), el("span", { class: "lg-half" }, "50–79%"), el("span", { class: "lg-bad" }, "Below 50%"),
+      el("span", { class: "lg-draft" }, "Working now: % of auto-checked points correct"), el("span", { class: "lg-pend" }, "* or TO GRADE: written answers need your grade"),
+      el("span", {}, "LATE: submitted after you closed it"), el("span", {}, "Select a cell to open the student's work"));
   }
   refresh();
   const t = setInterval(refresh, CONFIG.BOARD_REFRESH_SECONDS * 1000);
@@ -566,8 +592,8 @@ async function viewTrainer() {
 const indexBy = (arr, f) => Object.fromEntries(arr.map((x) => [f(x), x]));
 
 function trainerLogin() {
-  const f = el("form", { class: "card form login" });
-  f.innerHTML = `<h2>Trainer board</h2>
+  const f = el("form", { class: "form signin" });
+  f.innerHTML = `<h2>Trainer board</h2><p class="sub">Enter the trainer key from the Apps Script log.</p>
     ${demoMode() ? `<p class="note">No class server is configured yet. Follow SETUP.md, put the web app URL in js/config.js, or paste it below.</p>
       <label>Web app URL <input name="api" placeholder="https://script.google.com/macros/s/.../exec"></label>` : ""}
     <label>Trainer key <input name="key" type="password" required autocomplete="current-password"></label>
@@ -611,16 +637,16 @@ async function openDetail(st, day, item, s, l) {
     const res = d.final && d.final.detail ? d.final.detail.items || {} : {};
     kids.push(el("h3", {}, `Score ${d.final ? d.final.auto + " / " + d.final.autoMax : "—"}`));
     kids.push(el("ol", { class: "small" }, ...day.quiz.items.map((it) => el("li", { class: res[it.n] ? "ok" : "no" },
-      `${(payload.answers || {})[it.n] ?? "—"}  ${res[it.n] ? "✓" : "✗"}`))));
+      `${(payload.answers || {})[it.n] ?? "—"}  ${res[it.n] ? "correct" : "incorrect"}`))));
   } else {
     const det = (d.final && d.final.detail) || (d.live && d.live.detail) || {};
     const parts = (det.parts) || {};
     for (const p of act.parts) {
       const r = parts[p.id] || {};
       const a = (payload.sub && payload.sub.answers || {})[p.id];
-      const row = el("div", { class: "card part " + (r.manual ? "" : r.frac === 1 ? "good" : r.frac > 0 ? "half" : "bad") },
+      const row = el("div", { class: "part " + (r.manual ? "" : r.frac === 1 ? "good" : r.frac > 0 ? "half" : "bad") },
         el("div", { class: "phead" }, el("span", { class: "pprompt" }, p.prompt || p.label), el("span", { class: "ppts" },
-          r.manual ? `${p.points} pts · trainer` : `${r.pts ?? 0}/${p.points}`)));
+          r.manual ? `${p.points} PTS · TRAINER` : `${r.pts ?? 0}/${p.points}`)));
       if (p.type === "cells") {
         const dd = r.detail || {};
         const right = Object.values(dd).filter((x) => x === 1).length;
@@ -634,13 +660,13 @@ async function openDetail(st, day, item, s, l) {
         row.append(el("pre", { class: "answer" }, (payload.sub.answers || {}).insights || "(empty)"));
       } else if (p.type !== "spec") {
         row.append(el("pre", { class: "answer" }, Array.isArray(a) ? a.join(", ") : (a ?? "(no answer)")));
-      } else row.append(el("p", { class: "small" }, r.frac === 1 ? "✓ done" : "✗ not found"));
+      } else row.append(el("p", { class: "small" }, r.frac === 1 ? "Done." : "Not found."));
       kids.push(row);
     }
     // grading form
     const manual = act.parts.filter((p) => p.manual);
     if (manual.length && d.final) {
-      const g = el("form", { class: "card form grade" });
+      const g = el("form", { class: "form grade" });
       g.innerHTML = `<h3>Grade the written answers (${manual.reduce((s, p) => s + p.points, 0)} pts)</h3>
         <label>Points for the written part <input name="pts" type="number" step="0.5" min="0" max="${manual.reduce((s, p) => s + p.points, 0)}" value="${d.final.manual ?? ""}"></label>
         <label>Feedback to the student <textarea name="fb" rows="2">${esc(d.final.feedback || "")}</textarea></label>
@@ -708,7 +734,7 @@ async function route() {
     return await viewHome();
   } catch (e) {
     console.error(e);
-    shell("Something went wrong", "#/", el("div", { class: "card" }, el("p", {}, e.message), el("a", { class: "btn", href: "#/" }, "Home")));
+    shell("Something went wrong", "#/", el("div", { class: "panel panel-pad" }, el("p", {}, e.message), el("a", { class: "btn", href: "#/" }, "Home")));
   }
 }
 window.addEventListener("hashchange", route);

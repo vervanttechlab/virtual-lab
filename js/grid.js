@@ -2,7 +2,7 @@
 // Works with touch (phones) and with mouse + keyboard (desktop shortcuts as in Excel).
 import { formatValue } from "./workbook.js";
 import * as ST from "./stats.js";
-import { el, modal, toast, esc } from "./ui.js";
+import { el, modal, toast, esc, icon } from "./ui.js";
 
 const WB = window.WBCore;
 const FUNCS = ["SUM", "COUNT", "COUNTA", "AVERAGE", "MEDIAN", "MODE.SNGL", "MIN", "MAX", "VAR.S", "STDEV.S", "STDEV.P", "QUARTILE.INC",
@@ -53,16 +53,19 @@ export class SheetUI {
     const ro = this.opts.readOnly;
     this.root.innerHTML = "";
     this.root.classList.add("sheetui");
-    this.nameBox = el("span", { class: "namebox", title: "Selected cell" }, "A1");
+    this.nameBox = el("span", { class: "namebox", title: "Name Box: the selected cell or range" }, "A1");
     this.fx = el("input", { class: "fx", type: "text", autocomplete: "off", autocapitalize: "off", spellcheck: "false",
-      placeholder: ro ? "" : "Tap a cell, then type a value or =formula", readOnly: !!ro, "aria-label": "Formula bar" });
-    const ok = el("button", { class: "btn icon ok", title: "Enter", "aria-label": "Enter" }, "✓");
-    const cancel = el("button", { class: "btn icon", title: "Cancel (Esc)", "aria-label": "Cancel" }, "✕");
+      placeholder: ro ? "" : "Select a cell, then type a value or =formula", readOnly: !!ro, "aria-label": "Formula bar" });
+    const ok = el("button", { class: "fbtn ok", type: "button", title: "Enter", "aria-label": "Enter" }, icon("check"));
+    const cancel = el("button", { class: "fbtn no", type: "button", title: "Cancel (Esc)", "aria-label": "Cancel" }, icon("close"));
+    ok.addEventListener("pointerdown", (e) => e.preventDefault());
+    cancel.addEventListener("pointerdown", (e) => e.preventDefault());
     ok.addEventListener("click", () => this.commit());
     cancel.addEventListener("click", () => this.cancelEdit());
-    const fbar = el("div", { class: "fbar" }, this.nameBox, el("span", { class: "fxlabel" }, "fx"), this.fx, ro ? "" : cancel, ro ? "" : ok);
+    const fbar = el("div", { class: "fbar" }, this.nameBox, ro ? "" : cancel, ro ? "" : ok, el("span", { class: "fxsep" }),
+      el("span", { class: "fxlabel" }, "fx"), this.fx);
 
-    const keys = ["=", "(", ")", ":", ",", "F4 $", '"', "&", "<", ">", "+", "-", "*", "/", "^", "!", "Σ", "fx ▾"];
+    const keys = ["=", "(", ")", ":", ",", "$ F4", '"', "&", "<", ">", "+", "-", "*", "/", "^", "!"];
     this.keypad = el("div", { class: "keypad", role: "toolbar", "aria-label": "Formula symbols" },
       ...keys.map((k) => {
         const b = el("button", { class: "key", type: "button" }, k);
@@ -71,31 +74,60 @@ export class SheetUI {
         return b;
       }));
 
-    const tb = (label, title, fn, cls = "") => {
-      const b = el("button", { class: "tbtn " + cls, type: "button", title }, label);
+    // Ribbon (Excel-style tabs + command groups)
+    const rb = (ic, label, title, fn) => {
+      const b = el("button", { class: "rbtn", type: "button", title }, icon(ic), el("span", {}, label));
       b.addEventListener("pointerdown", (e) => { if (this.editing) e.preventDefault(); });
       b.addEventListener("click", fn);
       return b;
     };
-    this.selBtn = tb("⬚ Select", "Select a range: tap the first cell, turn this on, tap the last cell (or Shift + click)", () => this.toggleSelectMode());
-    this.toolbar = el("div", { class: "toolbar", role: "toolbar", "aria-label": "Sheet tools" },
-      this.selBtn,
-      tb("Fill ↓", "Copy the first row of the selection down (Ctrl + D)", () => this.doFill("down")),
-      tb("Fill →", "Copy the first column of the selection right (Ctrl + R)", () => this.doFill("right")),
-      tb("Fill to end", "Fill down to the last data row (double-click the fill handle)", () => this.doFill("end")),
-      tb("Copy", "Copy (Ctrl + C)", () => { this.wb.copy(this.sheet, this.sel); toast("Copied. Select where to paste, then tap Paste."); }),
-      tb("Paste", "Paste (Ctrl + V)", () => this.doPaste()),
-      tb("Clear", "Clear the selected cells (Delete)", () => this.wb.clear(this.sheet, this.sel)),
-      tb("↶ Undo", "Undo (Ctrl + Z)", () => { if (!this.wb.undo()) toast("Nothing to undo."); }),
-      tb("Format", "Number format (Comma, %, decimals)", () => this.formatDialog()),
-      tb("📊 Chart", "Insert a chart from the selection (Insert › Chart)", () => this.chartDialog(), "accent"),
-      tb("🧮 Analysis", "Data › Data Analysis (Analysis ToolPak)", () => this.analysisDialog(), "accent"),
-      tb("🖍 Highlight", "Conditional Formatting › Highlight Cells Rules › Equal To", () => this.highlightDialog(), "accent"));
+    const grp = (...b) => el("div", { class: "rgroup" }, ...b);
+    this.selBtn = rb("select", "Select range", "Select a range: select the first cell, turn this on, then select the last cell (or Shift + click)",
+      () => this.toggleSelectMode());
+    const copy = () => { this.wb.copy(this.sheet, this.sel); toast("Copied. Select where to paste, then Paste."); };
+    const RIBBON = {
+      Home: [
+        grp(rb("undo", "Undo", "Undo (Ctrl + Z)", () => { if (!this.wb.undo()) toast("Nothing to undo."); })),
+        grp(this.selBtn),
+        grp(rb("copy", "Copy", "Copy (Ctrl + C)", copy), rb("paste", "Paste", "Paste (Ctrl + V)", () => this.doPaste()),
+          rb("clear", "Clear", "Clear the selected cells (Delete)", () => this.wb.clear(this.sheet, this.sel))),
+        grp(rb("filldown", "Fill Down", "Copy the first row of the selection down (Ctrl + D)", () => this.doFill("down")),
+          rb("fillright", "Fill Right", "Copy the first column of the selection right (Ctrl + R)", () => this.doFill("right")),
+          rb("fillend", "Fill to End", "Fill down to the last data row (double-click the fill handle)", () => this.doFill("end"))),
+        grp(rb("format", "Number Format", "Comma style, percent, decimals", () => this.formatDialog()),
+          rb("highlight", "Highlight Cells", "Conditional Formatting › Highlight Cells Rules › Equal To", () => this.highlightDialog())),
+      ],
+      Formulas: [
+        grp(rb("sum", "AutoSum", "AutoSum (Alt + =)", () => this.autoSum()), rb("fx", "Insert Function", "Insert a function", () => this.funcPicker())),
+        grp(rb("lock", "Lock Reference ($)", "Add $ signs to the reference at the cursor (F4)", () => this.keyPress("$ F4"))),
+      ],
+      Data: [
+        grp(rb("analysis", "Data Analysis", "Analysis ToolPak: Descriptive Statistics, t-Test, Regression", () => this.analysisDialog())),
+      ],
+      Insert: [
+        grp(rb("chart", "Chart", "Insert a chart from the selection", () => this.chartDialog())),
+      ],
+    };
+    this.ribbon = el("div", { class: "ribbon", role: "toolbar", "aria-label": "Commands" });
+    this.rtabs = el("div", { class: "rtabs", role: "tablist" });
+    const showRibbon = (name) => {
+      this.rtabs.querySelectorAll(".rtab").forEach((t) => t.classList.toggle("on", t.dataset.t === name));
+      this.ribbon.replaceChildren(...RIBBON[name]);
+    };
+    for (const name of Object.keys(RIBBON)) {
+      const t = el("button", { class: "rtab", type: "button", role: "tab", "data-t": name }, name);
+      t.addEventListener("pointerdown", (e) => { if (this.editing) e.preventDefault(); });
+      t.addEventListener("click", () => showRibbon(name));
+      this.rtabs.append(t);
+    }
+    showRibbon("Home");
 
     this.gridWrap = el("div", { class: "gridwrap", tabindex: "0", "aria-label": "Spreadsheet grid" });
     this.tabs = el("div", { class: "tabs", role: "tablist" });
+    this.selStats = el("div", { class: "selstats", "aria-live": "polite" });
     this.chartArea = el("div", { class: "chartarea" });
-    this.root.append(fbar, ro ? "" : this.keypad, ro ? "" : this.toolbar, this.gridWrap, this.tabs, this.chartArea);
+    this.root.append(ro ? "" : this.rtabs, ro ? "" : this.ribbon, fbar, ro ? "" : this.keypad, this.gridWrap,
+      el("div", { class: "sheetfoot" }, this.tabs, this.selStats), this.chartArea);
 
     // formula bar events
     this.fx.addEventListener("focus", () => { if (!ro) this.beginEdit(false); });
@@ -104,7 +136,7 @@ export class SheetUI {
       if (e.key === "Enter") { e.preventDefault(); this.commit(); this.move(1, 0); }
       else if (e.key === "Tab") { e.preventDefault(); this.commit(); this.move(0, 1); }
       else if (e.key === "Escape") { e.preventDefault(); this.cancelEdit(); }
-      else if (e.key === "F4") { e.preventDefault(); this.keyPress("F4 $"); }
+      else if (e.key === "F4") { e.preventDefault(); this.keyPress("$ F4"); }
     });
     // grid events
     this.gridWrap.addEventListener("pointerdown", (e) => this.onCellDown(e));
@@ -228,6 +260,22 @@ export class SheetUI {
     this.table.querySelectorAll("th.hsel").forEach((t) => t.classList.remove("hsel"));
     for (let c = s.c1; c <= s.c2; c++) { const th = this.table.rows[0].cells[c + 1]; th && th.classList.add("hsel"); }
     for (let r = s.r1; r <= s.r2 && r < this.view.R; r++) { const th = this.table.rows[r + 1].cells[0]; th && th.classList.add("hsel"); }
+    this.updateSelStats();
+  }
+  /** Excel status bar: Average / Count / Sum of the selected numbers. */
+  updateSelStats() {
+    if (!this.selStats) return;
+    const s = this.sel;
+    if (s.r1 === s.r2 && s.c1 === s.c2) { this.selStats.textContent = ""; return; }
+    let n = 0, cnt = 0, sum = 0;
+    for (let r = s.r1; r <= s.r2; r++) for (let c = s.c1; c <= s.c2; c++) {
+      const v = this.wb.value(this.sheet, r, c);
+      if (v !== null && v !== "" && v !== undefined) cnt++;
+      if (typeof v === "number") { n++; sum += v; }
+    }
+    const f = (x) => formatValue(Number(x.toPrecision(10)));
+    this.selStats.replaceChildren(...(n ? [el("span", { class: "opt" }, `Average: ${f(sum / n)}`), el("span", {}, `Count: ${cnt}`), el("span", {}, `Sum: ${f(sum)}`)]
+      : [el("span", {}, `Count: ${cnt}`)]));
   }
   select(r, c, extend) {
     if (extend) {
@@ -378,10 +426,8 @@ export class SheetUI {
   }
   keyPress(k) {
     if (this.opts.readOnly) return;
-    if (k === "fx ▾") return this.funcPicker();
-    if (k === "Σ") return this.autoSum();
-    if (!this.editing) { this.beginEdit(false); this.fx.focus(); }
-    if (k === "F4 $") {
+        if (!this.editing) { this.beginEdit(false); this.fx.focus(); }
+    if (k === "$ F4") {
       const res = toggleRefAt(this.fx.value, this.fx.selectionStart ?? this.fx.value.length);
       if (res) { this.fx.value = res.text; this.fx.setSelectionRange(res.caret, res.caret); this.previewCell(); }
       else toast("Put the cursor on a cell reference (like G8), then press F4.");
@@ -394,7 +440,7 @@ export class SheetUI {
   funcPicker() {
     const list = el("div", { class: "funclist" });
     for (const f of FUNCS) {
-      const b = el("button", { class: "chip", type: "button" }, f);
+      const b = el("button", { type: "button" }, f);
       b.addEventListener("click", () => {
         m.close();
         if (!this.editing) { this.beginEdit(!this.fx.value.startsWith("=")); }
@@ -431,11 +477,12 @@ export class SheetUI {
 
   // ------------------------------------------------------------------ dialogs
   formatDialog() {
-    const opts = [["", "General"], ["#,##0", "Comma, 0 decimals  (1,234)"], ["#,##0.00", "Comma Style  (1,234.56)"], ["0.00", "2 decimals"],
-      ["0.000", "3 decimals"], ["0%", "Percent  (Ctrl + Shift + %)"], ["0.0%", "Percent, 1 decimal"]];
-    const box = el("div", { class: "stack" });
+    const opts = [["", "General  1234.5678"], ["#,##0", "Comma, no decimals  1,234"], ["#,##0.00", "Comma Style  1,234.56"], ["0.00", "Number, 2 decimals  1234.56"],
+      ["0.000", "Number, 3 decimals  0.123"], ["0%", "Percent (Ctrl + Shift + %)  56%"], ["0.0%", "Percent, 1 decimal  56.0%"]];
+    const box = el("div", { class: "optlist" });
     for (const [nf, label] of opts) {
-      const b = el("button", { class: "btn wide", type: "button" }, label);
+      const [name, sample] = label.split(/\s{2,}/);
+      const b = el("button", { type: "button" }, el("span", {}, name), el("span", {}, sample || ""));
       b.addEventListener("click", () => { this.wb.setFormat(this.sheet, this.sel, nf || null); m.close(); });
       box.append(b);
     }
@@ -455,6 +502,7 @@ export class SheetUI {
       <label class="row"><input name="trendline" type="checkbox" ${s.trendline ? "checked" : ""}> Add a linear trendline (show equation and R²)</label>
       <label>Chart title <input name="title" value="${esc(s.title || "")}"></label>
       <div class="actions">${existing ? '<button type="button" class="btn danger" data-del>Delete chart</button>' : ""}
+        <button class="btn" type="button" data-cancel>Cancel</button>
         <button class="btn primary" type="submit">${existing ? "Update" : "Insert chart"}</button></div>`;
     f.type.value = s.type;
     const m = modal(existing ? "Edit chart" : "Insert chart", f);
@@ -564,7 +612,7 @@ export class SheetUI {
       <label class="row"><input name="labels" type="checkbox" checked> Labels in first row</label>
       <label class="row"><input name="summary" type="checkbox" checked> Summary statistics</label>
       <label>New Worksheet Ply <input name="out" value=""></label>
-      <div class="actions"><button class="btn primary" type="submit">OK</button></div>`;
+      <div class="actions"><button class="btn" type="button" data-cancel>Cancel</button><button class="btn primary" type="submit">OK</button></div>`;
     const sync = () => {
       const t = f.tool.value;
       f.querySelector("[data-two]").hidden = t === "descr";
@@ -612,12 +660,12 @@ export class SheetUI {
       <label>Format cells that are EQUAL TO <input name="value" value="OUTLIER"></label>
       <label>with <select name="color"><option value="red">Light red fill</option><option value="yellow">Yellow fill</option><option value="green">Green fill</option></select></label>
       <div class="rules"></div>
-      <div class="actions"><button class="btn primary" type="submit">OK</button></div>`;
+      <div class="actions"><button class="btn" type="button" data-cancel>Cancel</button><button class="btn primary" type="submit">OK</button></div>`;
     const rules = f.querySelector(".rules");
     const listRules = () => {
       rules.innerHTML = "";
       this.wb.specs.rules.filter((r) => r.sheet === this.sheet).forEach((r) => {
-        const b = el("button", { class: "chip", type: "button", title: "Delete this rule" }, `${r.range} = "${r.value}" ✕`);
+        const b = el("button", { type: "button", title: "Delete this rule" }, `${r.range} = "${r.value}"  ×`);
         b.addEventListener("click", () => { this.wb.removeSpec("rules", r.id); listRules(); });
         rules.append(b);
       });
