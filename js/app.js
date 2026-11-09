@@ -98,7 +98,7 @@ function shell(title, back, ...body) {
 /** Tabs shown on every page of a day, so students can move between its parts in one tap. */
 function dayTabs(n, active) {
   const tabs = [["day", "Activities", `#/day/${n}`, "list"], ["lesson", "Lesson", `#/lesson/${n}`, "book"],
-    ["sheet", "Workbook", `#/sheet/${n}`, "grid"], ["quiz", "Quiz", `#/quiz/${n}`, "quiz"]];
+    ["sheet", "Workbook", `#/sheet/${n}`, "grid"], ["quiz", "Quiz", `#/quiz/${n}`, "quiz"], ["files", "Files", `#/files/${n}`, "download"]];
   return el("nav", { class: "daytabs", "aria-label": `Day ${n}` }, el("span", { class: "dt-day" }, `Day ${n}`),
     ...tabs.map(([k, label, href, ic]) => el("a", { class: "dt" + (k === active ? " on" : ""), href, "aria-current": k === active ? "page" : null },
       icon(ic), el("span", {}, label))));
@@ -326,6 +326,32 @@ function renderLesson(n, day, cfg, k) {
 }
 const toSec = (t) => String(t).split(":").reduce((a, x) => a * 60 + Number(x), 0);
 
+const kb = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB");
+/** One downloadable file: PDFs can also be opened in the browser. */
+function fileRow(f) {
+  const kind = f.type === "pdf" ? "PDF" : f.type.toUpperCase();
+  return el("div", { class: "frow" },
+    el("span", { class: "ftype ft-" + f.type }, kind),
+    el("div", { class: "fmain" }, el("div", { class: "fname" }, f.label), el("div", { class: "fsub" }, `${f.name} · ${kb(f.size)}`),
+      f.note ? el("div", { class: "fsub" }, f.note) : ""),
+    el("div", { class: "fact" },
+      f.type === "pdf" ? el("a", { class: "btn small", href: f.path, target: "_blank", rel: "noopener" }, "Open") : "",
+      el("a", { class: "btn small primary", href: f.path, download: f.name }, icon("download"), el("span", { class: "hide-sm" }, "Download"))));
+}
+async function viewFiles(n) {
+  const day = await getDay(n);
+  const files = day.files || [];
+  const pdfs = files.filter((f) => f.group === "pdf"), data = files.filter((f) => f.group !== "pdf");
+  shell(`Day ${n} › Files`, `#/day/${n}`, dayTabs(n, "files"),
+    el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} files`), el("h2", {}, day.title),
+      el("div", { class: "meta" }, "Download the files to keep, print or use in Microsoft Excel. You do not need them for the lab: the lab's Workbook already has the same data.")),
+    pdfs.length ? el("div", { class: "label" }, "Reading and activity sheets") : "", pdfs.length ? el("div", { class: "flist" }, ...pdfs.map(fileRow)) : "",
+    data.length ? el("div", { class: "label" }, "Excel files for the activities") : "", data.length ? el("div", { class: "flist" }, ...data.map(fileRow)) : "",
+    data.length ? el("p", { class: "small muted", style: "margin-top:10px" }, "On a phone, Excel files open in the Microsoft Excel or Google Sheets app. " +
+      "Use them when your trainer asks you to work in Excel; otherwise do the activities in the lab.") : "",
+    !files.length ? el("p", { class: "muted" }, "No files for this day yet.") : "");
+}
+
 async function viewSheet(n) {
   const day = await getDay(n);
   const host = el("div", { class: "sheethost" });
@@ -365,7 +391,10 @@ async function viewActivity(n, actId) {
     ["Double-click fill handle", "Home › Fill to End"], ["Shift + click", "Home › Select range, then select the last cell"],
     ["Alt + =", "Formulas › AutoSum"], ["Insert › Chart", "Insert › Chart"], ["Data › Data Analysis", "Data › Data Analysis"],
     ["Conditional Formatting", "Home › Highlight Cells"], ["Ctrl + Shift + %", "Home › Number Format › Percent"]];
-  const steps = el("div", { class: "task-sec steps" }, el("div", { class: "label" }, "Instructions"),
+  const actFiles = (day.files || []).filter((f) => f.group !== "pdf" || /Activities/i.test(f.name));
+  const filesBox = actFiles.length ? el("details", { class: "actfiles" }, el("summary", {}, icon("download"), el("span", {}, "Files for this activity"),
+    el("span", { class: "small muted" }, `${actFiles.length} file${actFiles.length > 1 ? "s" : ""}`)), el("div", { class: "flist" }, ...actFiles.map(fileRow))) : "";
+  const steps = el("div", { class: "task-sec steps" }, el("div", { class: "label" }, "Instructions"), filesBox,
     el("div", { class: "prose", html: act.html }),
     el("details", {}, el("summary", { class: "small", style: "cursor:pointer;margin-top:8px;color:var(--info)" }, "Excel keys and their lab equivalents"),
       el("table", { class: "equiv" }, el("thead", {}, el("tr", {}, el("th", {}, "In Excel"), el("th", {}, "In the lab"))),
@@ -496,7 +525,45 @@ async function viewActivity(n, actId) {
     ui && ui.setMarks(marks);
   }
   // ---- turn in to Google Classroom: download the answers file, then open the assignment the trainer linked
-  btnTurnIn.addEventListener("click", async () => {
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  /** The next place to go after this activity: the next OPEN activity, else the open quiz, else the Day page. */
+  async function nextTarget() {
+    const c = await loadConfig(true).catch(() => cfg);
+    const i = day.activities.findIndex((a) => a.id === actId);
+    const nxt = day.activities.slice(i + 1).find((a) => isOpen(c, tag, a.id));
+    if (nxt) return { href: `#/act/${n}/${nxt.id}`, label: `Activity ${nxt.id}`, title: nxt.title };
+    if (isOpen(c, tag, "quiz")) return { href: `#/quiz/${n}`, label: "the self-check quiz", title: day.quiz.title };
+    return { href: `#/day/${n}`, label: `Day ${n}`, title: "You have finished all the open activities for today.", done: true };
+  }
+  /** "Going to … in 5 s" with Go now / Stay here. Stops if the window is closed or the student leaves the page. */
+  function countdown(holder, target, lead) {
+    let left = 5, timer = null;
+    const msg = el("span", {});
+    const go = el("a", { class: "btn primary small", href: target.href }, "Go now");
+    const stay = el("button", { class: "btn small", type: "button" }, "Stay here");
+    const box = el("div", { class: "nextbar" }, el("div", {}, lead ? el("b", {}, lead + " ") : "", msg,
+      target.done ? el("div", { class: "small muted" }, target.title) : el("div", { class: "small muted" }, target.title)), el("div", { class: "btnrow" }, go, stay));
+    const paint = () => { msg.textContent = `Going to ${target.label} in ${left} s…`; };
+    const stop = (text) => { clearInterval(timer); timer = null; msg.textContent = text; stay.remove(); };
+    stay.addEventListener("click", () => stop(`Staying here. Tap Go now when you are ready for ${target.label}.`));
+    paint();
+    timer = setInterval(() => {
+      if (!document.body.contains(box) || !location.hash.includes(`/${n}/${actId}`)) return clearInterval(timer);
+      left -= 1;
+      if (left <= 0) { clearInterval(timer); document.querySelectorAll(".modal-back").forEach((m) => m.remove()); location.hash = target.href; return; }
+      paint();
+    }, 1000);
+    holder.replaceChildren(box);
+    return box;
+  }
+  /** The Classroom link the trainer saved for this activity ("" if none). */
+  const classroomLink = async () => {
+    const fresh = await loadConfig(true).catch(() => cfg);           // the trainer may have added the link just now
+    return ((fresh.links || cfg.links || {})[tag] || {})[actId] || "";
+  };
+  btnTurnIn.addEventListener("click", () => openTurnIn(false));
+  /** Turn in to Google Classroom: download the answers file, then open the assignment the trainer linked. */
+  async function openTurnIn(afterSubmit, knownLink) {
     btnTurnIn.disabled = true;
     const label = btnTurnIn.lastChild.textContent;
     btnTurnIn.lastChild.textContent = "Preparing…";
@@ -513,22 +580,41 @@ async function viewActivity(n, actId) {
       btnTurnIn.disabled = false;
       btnTurnIn.lastChild.textContent = label;
     }
-    const fresh = await loadConfig(true).catch(() => cfg);           // the trainer may have added the link just now
-    const link = ((fresh.links || cfg.links || {})[tag] || {})[actId] || "";
+    const link = knownLink ?? (await classroomLink());
     const submitted = !!(results[actId] && (results[actId].server || results[actId].pending));
     const dl = el("button", { class: "btn primary", type: "button" }, icon("download"), "Download my answers");
     dl.addEventListener("click", () => { downloadBlob(file.blob, file.filename); if (open_) { dl.classList.remove("primary"); open_.classList.add("primary"); } });
     const open_ = link ? el("a", { class: "btn", href: link, target: "_blank", rel: "noopener" }, "Open the Google Classroom assignment") : null;
     const step = (n, title, ...kids) => el("div", { class: "tstep" }, el("span", { class: "tn" }, String(n)), el("div", {}, el("b", { class: "tt" }, title), ...kids));
     const box = el("div", { class: "turnin" },
-      step(1, "Download your answers", el("p", { class: "small muted" }, `File: ${file.filename} (Excel). It has your answers and your workbook.`), dl),
+      afterSubmit ? el("div", { class: "tdone" }, icon("check"), el("div", {}, el("b", {}, "Submitted to the lab."),
+        " Your trainer can see your score. Now turn in your work on Google Classroom:")) : "",
+      step(1, "Download your answers", el("p", { class: "small muted" }, `File: ${file.filename} (Excel). It has your answers and your workbook.`),
+        ios ? el("p", { class: "small" }, "On iPhone: after you tap Download, tap the ", el("b", {}, "Share"), " button, then ", el("b", {}, "Save to Files"), ".") : "", dl),
       link ? step(2, "Open the assignment in Google Classroom", el("p", { class: "small muted" }, "Classroom opens on the assignment for this activity."), open_)
         : step(2, "Open Google Classroom", el("p", { class: "small" }, "Your trainer has not added a Classroom link for this activity yet. Open the assignment in Google Classroom yourself, or ask your trainer.")),
       step(3, "Attach the file and turn in", el("p", { class: "small" }, "In the assignment, tap ", el("b", {}, "Add or create"), " (or ", el("b", {}, "+ Add"),
-        "), then ", el("b", {}, "File"), ". Choose the file from your ", el("b", {}, "Downloads"), " folder, then tap ", el("b", {}, "Turn in"), ".")),
+        "), then ", el("b", {}, "File"), ". Choose the file from your ", el("b", {}, "Downloads"), ios ? " (in the Files app)" : " folder", ", then tap ", el("b", {}, "Turn in"), ".")),
       submitted ? "" : el("p", { class: "note small" }, "Also tap Submit here in the lab, so your trainer sees your score on the class board."));
-    modal(`Turn in Activity ${act.id}`, box);
-  });
+    if (afterSubmit) {
+      const target = await nextTarget();
+      const holder = el("div", {}, el("a", { class: "btn", href: target.href }, target.done ? `Back to Day ${n}` : `Next: ${target.label}`, icon("chev")));
+      box.append(step(4, target.done ? "All done for today" : "Go to the next activity", el("p", { class: "small muted" },
+        target.done ? target.title : `When you have turned it in on Classroom: ${target.label} · ${target.title}`), holder));
+      if (open_) {
+        open_.addEventListener("click", () => {
+          // when the student comes back from Classroom, move on (with a 5-second chance to stay)
+          const back = () => {
+            if (document.visibilityState !== "visible") return;
+            document.removeEventListener("visibilitychange", back);
+            if (document.body.contains(holder)) countdown(holder, target, "Welcome back! Turned it in on Classroom?");
+          };
+          setTimeout(() => document.addEventListener("visibilitychange", back), 300);
+        });
+      }
+    }
+    modal(afterSubmit ? `Activity ${act.id}: turn in on Google Classroom` : `Turn in Activity ${act.id}`, box);
+  }
 
   btnCheck.addEventListener("click", async () => {
     const { score } = await evaluate();
@@ -561,11 +647,26 @@ async function viewActivity(n, actId) {
       if (r.sent) {
         results[actId] = { ...(results[actId] || {}), server: r.data.result, pending: false };
         status.textContent = `Submitted: ${fmtScore(r.data.result)}`;
-        toast("Submitted! Your trainer can see your work now.", "good");
+        store.set(K.res(tag), results);
+        const link = await classroomLink().catch(() => "");
+        if (link) openTurnIn(true, link);                                 // next step: Google Classroom
+        else {
+          const target = await nextTarget();
+          const holder = el("div", {});
+          const done = el("div", { class: "turnin" }, el("div", { class: "tdone" }, icon("check"), el("div", {}, el("b", {}, "Submitted. "),
+            `Your trainer can see your work. Auto-checked score: ${fmtScore(r.data.result)}.`)), holder);
+          modal(`Activity ${act.id} submitted`, done);
+          countdown(holder, target);
+        }
       } else {
         results[actId] = { ...(results[actId] || {}), pending: true };
         status.textContent = "Submitted, waiting for a connection";
         toast("You are offline. Your work is saved and will be sent automatically.");
+        nextTarget().then((target) => {                                   // offline: no automatic move, just offer the next step
+          modal(`Activity ${act.id} saved`, el("div", { class: "turnin" },
+            el("div", { class: "note" }, "You are offline. Your work is saved on this phone and will be sent when you are back online."),
+            el("div", { class: "btnrow" }, el("a", { class: "btn primary", href: target.href }, target.done ? `Back to Day ${n}` : `Next: ${target.label}`, icon("chev")))));
+        });
       }
       store.set(K.res(tag), results);
       dirty = false;
@@ -1048,6 +1149,7 @@ async function route_() {
     if (h[0] === "sheet") return await viewSheet(Number(h[1]));
     if (h[0] === "act") return await viewActivity(Number(h[1]), h[2]);
     if (h[0] === "quiz") return await viewQuiz(Number(h[1]));
+    if (h[0] === "files") return await viewFiles(Number(h[1]));
     if (h[0] === "login") return await viewLogin();
     return await viewHome();
   } catch (e) {

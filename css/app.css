@@ -462,3 +462,30 @@ a.row:active { background: var(--accent-soft); }
 /* day tabs run edge to edge under the title bar (override the centred-content rule) */
 .page.narrow > .daytabs { max-width: none; margin: -16px -16px 14px; padding-left: max(16px, calc((100% - 980px) / 2 + 16px)); padding-right: 16px; }
 @media (max-width: 900px) { .page.narrow > .daytabs { margin: -10px -10px 12px; padding-left: 10px; padding-right: 10px; } }
+
+/* ------------------------------------------------------------------ files */
+.flist { background: var(--panel); border: 1px solid var(--line); border-top: 0; }
+.label + .flist { border-top: 1px solid var(--line); }
+.frow { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); }
+.frow:first-child { border-top: 0; }
+.ftype { display: flex; align-items: center; justify-content: center; height: 30px; font: 700 10px var(--mono); letter-spacing: .04em; color: #fff; background: #605e5c; }
+.ftype.ft-pdf { background: #a4262c; } .ftype.ft-xlsx, .ftype.ft-csv { background: #107c41; }
+.fname { font-weight: 600; font-size: 14px; }
+.fsub { font-size: 12px; color: var(--muted); }
+.fact { display: flex; gap: 6px; }
+.actfiles { border: 1px solid var(--line); margin: 0 0 12px; background: var(--panel); }
+.actfiles > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; font-weight: 600; font-size: 13px; list-style: none; }
+.actfiles > summary::-webkit-details-marker { display: none; }
+.actfiles > summary .small { margin-left: auto; font-weight: 400; }
+.actfiles .flist { border: 0; border-top: 1px solid var(--line); }
+@media (max-width: 600px) { .frow { grid-template-columns: 38px 1fr auto; gap: 8px; } }
+/* phones: five day tabs fit the width, icon above label (like a mobile tab bar) */
+@media (max-width: 600px) {
+  .page.narrow > .daytabs { padding-left: 0; padding-right: 0; }
+  .dt { flex: 1 1 0; flex-direction: column; justify-content: center; gap: 3px; height: 54px; padding: 0 2px; min-width: 0; }
+  .dt span { font-size: 11px; }
+  .dt .ic { width: 18px; height: 18px; }
+}
+.tdone { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 4px; background: var(--good-bg); border-left: 3px solid var(--good); font-size: 13px; }
+.tdone .ic { color: var(--good); margin-top: 2px; }
+.nextbar { display: grid; gap: 8px; padding: 10px 12px; background: var(--accent-soft); border-left: 3px solid var(--accent); font-size: 13px; }
