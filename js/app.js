@@ -79,10 +79,15 @@ function shell(title, back, ...body) {
   const pend = el("span", { class: "tb-flag unsent" + (qn ? " show" : ""), title: "Work saved on this device, waiting for a connection" }, `${qn} UNSENT`);
   onLeave(onQueue((n) => { pend.textContent = `${n} UNSENT`; pend.classList.toggle("show", n > 0); }));
   const parts = String(title).split(" › ");
-  const crumbs = el("div", { class: "crumbs" }, ...parts.flatMap((t, i) => [i ? el("span", { class: "sep" }, "/") : "",
-    el("span", { class: i === parts.length - 1 ? "cur" : "" }, t)]));
+  const crumbHref = (t) => (t === "Home" ? "#/" : /^Day (\d+)$/.test(t) ? `#/day/${t.slice(4)}` : null);
+  const trail = parts[0] === "Home" || parts[0] === "Sign in" || parts[0] === "Trainer board" ? parts : ["Home", ...parts];
+  const crumbs = el("nav", { class: "crumbs", "aria-label": "You are here" }, ...trail.flatMap((t, i) => {
+    const last = i === trail.length - 1, href = !last && crumbHref(t);
+    return [i ? el("span", { class: "sep" }, "/") : "", href ? el("a", { href }, t) : el("span", { class: last ? "cur" : "" }, t)];
+  }));
+  const backLabel = back === "#/" ? "Home" : (back || "").replace(/^#\/day\/(\d+).*$/, "Day $1").replace(/^#\/lesson\/(\d+).*$/, "Lesson");
   const head = el("header", { class: "titlebar" },
-    back ? el("a", { class: "tb-btn", href: back, "aria-label": "Back", title: "Back" }, icon("back")) : "",
+    back ? el("a", { class: "tb-btn tb-back", href: back, title: `Back to ${backLabel}` }, icon("back"), el("span", {}, backLabel)) : "",
     el("a", { class: "tb-btn brand", href: "#/" }, "DAL3 LAB"),
     crumbs, pend,
     demoMode() ? el("span", { class: "tb-flag", title: "No class server configured: work stays on this device" }, "DEMO") : "",
@@ -90,6 +95,15 @@ function shell(title, back, ...body) {
   app.replaceChildren(head, el("main", { class: cls }, ...body));
   window.scrollTo(0, 0);
 }
+/** Tabs shown on every page of a day, so students can move between its parts in one tap. */
+function dayTabs(n, active) {
+  const tabs = [["day", "Activities", `#/day/${n}`, "list"], ["lesson", "Lesson", `#/lesson/${n}`, "book"],
+    ["sheet", "Workbook", `#/sheet/${n}`, "grid"], ["quiz", "Quiz", `#/quiz/${n}`, "quiz"]];
+  return el("nav", { class: "daytabs", "aria-label": `Day ${n}` }, el("span", { class: "dt-day" }, `Day ${n}`),
+    ...tabs.map(([k, label, href, ic]) => el("a", { class: "dt" + (k === active ? " on" : ""), href, "aria-current": k === active ? "page" : null },
+      icon(ic), el("span", {}, label))));
+}
+
 function accountMenu() {
   const s = session.get();
   const box = el("div", { class: "form" },
@@ -212,12 +226,9 @@ async function viewDay(n) {
     const qOpen = isOpen(cfg, tag, "quiz"), qr = res.quiz;
     const head = el("div", { class: "listhead actsrow acts" }, el("div", {}, "No."), el("div", {}, "Activity"), el("div", {}, "Mode"),
       el("div", {}, "Time"), el("div", {}, "Points"), el("div", {}, "Status"), el("div", {}));
-    shell(`Day ${n}`, "#/",
+    shell(`Day ${n}`, "#/", dayTabs(n, "day"),
       el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} · ${day.unit}`), el("h2", {}, day.title)),
-      el("div", { class: "toolrow" },
-        el("a", { class: "btn", href: `#/lesson/${n}` }, icon("book"), "Lesson"),
-        el("a", { class: "btn", href: `#/sheet/${n}` }, icon("grid"), "Practice workbook"),
-        VIDEOS[n] ? el("a", { class: "btn", href: `#/lesson/${n}` }, icon("play"), "Demo video") : ""),
+      VIDEOS[n] ? el("div", { class: "toolrow" }, el("a", { class: "btn", href: `#/lesson/${n}/0` }, icon("play"), "Watch the demo video")) : "",
       el("div", { class: "label" }, "Activities"), head, el("div", { class: "list" }, ...rows),
       el("div", { class: "label" }, "Self-check"),
       el("div", { class: "list", style: "border-top:1px solid var(--line)" },
@@ -262,36 +273,63 @@ function videoBox(url, title, sub, chapterList) {
 /** The video link for a day: the one the trainer saved on the board (Google Sheet), else the default in videos.js. */
 const videoUrl = (cfg, n) => (((cfg && cfg.links) || {})[`day${String(n).padStart(2, "0")}`] || {}).video || (VIDEOS[n] && VIDEOS[n].url) || "";
 
-async function viewLesson(n) {
+async function viewLesson(n, k) {
   const day = await getDay(n);
-  if (demoMode()) return renderLesson(n, day, {});
-  return withConfig((cfg) => renderLesson(n, day, cfg));
+  if (demoMode()) return renderLesson(n, day, {}, k);
+  return withConfig((cfg) => renderLesson(n, day, cfg, k));
 }
-function renderLesson(n, day, cfg) {
+function renderLesson(n, day, cfg, k) {
   const vid = VIDEOS[n] ? { ...VIDEOS[n], url: videoUrl(cfg, n) } : null;
   const chapterFor = (h) => vid && vid.chapters.find((c) => h.startsWith(c.part + " ") || h === c.part);
-  const secs = day.lesson.map((s, i) => {
-    const body = [el("div", { class: "prose", html: s.html })];
-    const ch = chapterFor(s.h);
-    if (ch) body.push(videoBox(vid.url, ch.title, `This part of the demo starts at ${ch.start}` + (ch.end ? ` and ends at ${ch.end}` : "") +
-      `. Press play, then drag the slider to ${ch.start}.`));
-    const d = el("details", { class: "lesson" }, el("summary", {}, s.h, ch ? el("span", { class: "tag vtag" }, "VIDEO") : ""), ...body);
-    if (i === 0) d.open = true;
-    return d;
-  });
-  const top = vid ? el("details", { class: "lesson", open: true }, el("summary", {}, "Demo video", el("span", { class: "tag vtag" }, vid.length || "VIDEO")),
-    el("div", { class: "prose" }, videoBox(vid.url, `Day ${n} demonstration: ${day.title}`, "The whole demonstration. Each part of the lesson below also has its own chapter.",
-      el("table", { class: "vchapters" }, el("tbody", {}, ...vid.chapters.slice().sort((a, b) => toSec(a.start) - toSec(b.start)).map((c) =>
-        el("tr", {}, el("td", { class: "mono" }, `${c.start}${c.end ? "–" + c.end : ""}`), el("td", {}, c.title), el("td", { class: "muted" }, c.part)))))))) : "";
-  if (top) secs[0].open = false;
-  shell(`Day ${n} › Lesson`, `#/day/${n}`, el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} lesson`), el("h2", {}, day.title)), top, ...secs);
+  // the parts of the lesson: the demo video first (if any), then every section of the handout
+  const items = [];
+  if (vid) items.push({ title: "Demo video", video: true, short: "Demo video", body: () =>
+    videoBox(vid.url, `Day ${n} demonstration: ${day.title}`, "The whole demonstration. The lesson parts that have a VIDEO tag also play their own chapter.",
+      el("table", { class: "vchapters" }, el("tbody", {}, ...vid.chapters.slice().sort((x, y) => toSec(x.start) - toSec(y.start)).map((c) =>
+        el("tr", {}, el("td", { class: "mono" }, `${c.start}${c.end ? "–" + c.end : ""}`), el("td", {}, c.title), el("td", { class: "muted" }, c.part)))))) });
+  for (const sec of day.lesson) {
+    const ch = chapterFor(sec.h);
+    items.push({ title: sec.h, video: !!ch, short: sec.h.replace(/^Part (\d+) — /, "$1 · "), body: () => [el("div", { class: "prose", html: sec.html }),
+      ch ? videoBox(vid.url, ch.title, `This part of the demo starts at ${ch.start}` + (ch.end ? ` and ends at ${ch.end}` : "") +
+        `. Press play, then drag the slider to ${ch.start}.`) : ""] });
+  }
+  const tag = day.tag, rk = `dal3_read_${uid()}_${tag}`, lk = `dal3_lastpart_${uid()}_${tag}`;
+  const read = new Set(store.get(rk, []));
+  if (!(k >= 0 && k < items.length)) k = Math.min(Math.max(0, store.get(lk, 0)), items.length - 1);
+  read.add(k);
+  store.set(rk, [...read]);
+  store.set(lk, k);
+  const it = items[k];
+
+  const toc = el("ol", { class: "toc" }, ...items.map((x, i) => el("li", {},
+    el("a", { href: `#/lesson/${n}/${i}`, class: (i === k ? "on " : "") + (read.has(i) ? "read" : ""), "aria-current": i === k ? "page" : null },
+      el("span", { class: "tk" }, read.has(i) ? icon("check") : ""), el("span", { class: "tt" }, x.short),
+      x.video ? el("span", { class: "tag vtag" }, "VIDEO") : ""))));
+  const done = read.size, pct = Math.round(100 * done / items.length);
+  const progress = el("div", { class: "lprog" }, el("div", { class: "lbar" }, el("span", { style: `width:${pct}%` })),
+    el("span", { class: "small muted" }, `${done} of ${items.length} parts read`));
+  const contents = el("details", { class: "tocbox" }, el("summary", {}, icon("book"), el("span", {}, "Contents"),
+    el("span", { class: "small muted" }, `Part ${k + 1} of ${items.length}`)), toc);
+  if (window.innerWidth > 900) contents.open = true;
+
+  const prev = k > 0 ? el("a", { class: "btn", href: `#/lesson/${n}/${k - 1}` }, icon("back"), el("span", {}, "Previous")) : el("span", {});
+  const next = k < items.length - 1
+    ? el("a", { class: "btn primary", href: `#/lesson/${n}/${k + 1}` }, el("span", {}, "Next: "), el("span", { class: "nx" }, items[k + 1].short), icon("chev"))
+    : el("a", { class: "btn primary", href: `#/day/${n}` }, el("span", {}, "Finish: go to the activities"), icon("chev"));
+  const article = el("article", { class: "lpart" },
+    el("div", { class: "lpart-head" }, el("div", { class: "kicker" }, `Part ${k + 1} of ${items.length}`), el("h2", {}, it.title)),
+    ...[].concat(it.body()),
+    el("div", { class: "lnav" }, prev, next));
+  shell(`Day ${n} › Lesson`, `#/day/${n}`, dayTabs(n, "lesson"),
+    el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} lesson`), el("h2", {}, day.title), progress),
+    el("div", { class: "lreader" }, el("aside", { class: "lside" }, contents), article));
 }
 const toSec = (t) => String(t).split(":").reduce((a, x) => a * 60 + Number(x), 0);
 
 async function viewSheet(n) {
   const day = await getDay(n);
   const host = el("div", { class: "sheethost" });
-  shell(`Day ${n} › Practice workbook`, `#/day/${n}`,
+  shell(`Day ${n} › Workbook`, `#/day/${n}`, dayTabs(n, "sheet"),
     el("p", { class: "small muted" }, `Your Day ${n} workbook. The activities use this same workbook, so formulas you enter here count there too.`),
     host);
   await loadEngine();
@@ -595,7 +633,7 @@ async function viewQuiz(n) {
   const result = el("div", { class: "result", hidden: true });
   const submit = el("button", { class: "btn primary", type: "submit" }, "Submit quiz");
   form.append(el("div", { class: "submitrow" }, submit));
-  shell(`Day ${n} › Quiz`, `#/day/${n}`, el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} · ${day.quiz.items.length} items · pass mark 80%`), el("h2", {}, day.quiz.title)), result, form);
+  shell(`Day ${n} › Quiz`, `#/day/${n}`, dayTabs(n, "quiz"), el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} · ${day.quiz.items.length} items · pass mark 80%`), el("h2", {}, day.quiz.title)), result, form);
   const collect = () => {
     const a = {};
     for (const it of day.quiz.items) {
@@ -1006,7 +1044,7 @@ async function route_() {
     if (h[0] === "trainer") return await viewTrainer();
     if (!session.get()) return await viewLogin();
     if (h[0] === "day") return await viewDay(Number(h[1]));
-    if (h[0] === "lesson") return await viewLesson(Number(h[1]));
+    if (h[0] === "lesson") return await viewLesson(Number(h[1]), h[2] === undefined ? undefined : Number(h[2]));
     if (h[0] === "sheet") return await viewSheet(Number(h[1]));
     if (h[0] === "act") return await viewActivity(Number(h[1]), h[2]);
     if (h[0] === "quiz") return await viewQuiz(Number(h[1]));

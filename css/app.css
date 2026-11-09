@@ -400,3 +400,65 @@ a.row:active { background: var(--accent-soft); }
 .vchapters td { border-top: 1px solid var(--line); padding: 5px 12px; }
 .vchapters td:first-child { white-space: nowrap; width: 1%; }
 .vtag { margin-left: auto; color: var(--accent); border-color: var(--accent); }
+
+/* ------------------------------------------------------------------ navigation: back label, breadcrumbs, day tabs */
+.tb-back { gap: 4px; padding: 0 10px 0 4px; font-size: 13px; font-weight: 600; }
+.tb-back span { white-space: nowrap; }
+.crumbs a { color: inherit; opacity: .85; text-decoration: none; }
+.crumbs a:hover { opacity: 1; text-decoration: underline; }
+.daytabs { position: sticky; top: 40px; z-index: 20; display: flex; align-items: stretch; gap: 0; margin: -16px -16px 14px; padding: 0 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.daytabs::-webkit-scrollbar { display: none; }
+.dt-day { display: flex; align-items: center; padding-right: 14px; margin-right: 6px; border-right: 1px solid var(--line);
+  font: 700 12px var(--mono); color: var(--accent); white-space: nowrap; }
+.dt { display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; height: 42px; color: var(--muted); font-size: 13px; font-weight: 600;
+  text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; }
+.dt:hover { color: var(--ink); text-decoration: none; background: var(--panel-2); }
+.dt.on { color: var(--accent); border-bottom-color: var(--accent); }
+.dt .ic { color: currentColor; }
+
+/* ------------------------------------------------------------------ lesson reader */
+.lprog { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.lbar { flex: 1; max-width: 320px; height: 6px; background: var(--line); }
+.lbar span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.lreader { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+.lside { position: sticky; top: 98px; max-height: calc(100vh - 110px); overflow: auto; }
+.tocbox { background: var(--panel); border: 1px solid var(--line); }
+.tocbox > summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; font-weight: 600; list-style: none; }
+.tocbox > summary::-webkit-details-marker { display: none; }
+.tocbox > summary .small { margin-left: auto; font-weight: 400; }
+.toc { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.toc a { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; padding: 8px 12px; color: var(--ink); font-size: 13px;
+  text-decoration: none; border-left: 3px solid transparent; }
+.toc a:hover { background: var(--panel-2); text-decoration: none; }
+.toc a.on { background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
+.toc a.read .tt { color: var(--muted); }
+.toc a.on .tt { color: var(--ink); }
+.toc .tk { color: var(--good); display: flex; }
+.lpart { background: var(--panel); border: 1px solid var(--line); padding: 16px 18px 0; min-width: 0; }
+.lpart-head { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 4px; }
+.lpart-head .kicker { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.lpart-head h2 { font-size: 19px; margin-top: 2px; }
+.lpart .prose { padding: 10px 0; }
+.lnav { display: flex; justify-content: space-between; gap: 10px; margin: 16px -18px 0; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.lnav .btn { max-width: 70%; }
+.lnav .nx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; font-weight: 400; }
+
+@media (max-width: 900px) {
+  .daytabs { margin: -10px -10px 12px; padding: 0 10px; }
+  .dt { padding: 0 12px; }
+  .lreader { grid-template-columns: minmax(0, 1fr); }
+  .lside { position: static; max-height: none; }
+  .lpart { padding: 12px 12px 0; }
+  .lnav { position: sticky; bottom: 0; margin: 14px -12px 0; padding: 10px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .lnav .nx { max-width: 130px; }
+}
+@media (max-width: 600px) {
+  .titlebar .brand { display: none; }
+  .crumbs > *:not(:last-child) { display: none; }          /* phones: the Back button + current page are enough */
+  .dt span { font-size: 12px; }
+  .dt-day { display: none; }
+}
+/* day tabs run edge to edge under the title bar (override the centred-content rule) */
+.page.narrow > .daytabs { max-width: none; margin: -16px -16px 14px; padding-left: max(16px, calc((100% - 980px) / 2 + 16px)); padding-right: 16px; }
+@media (max-width: 900px) { .page.narrow > .daytabs { margin: -10px -10px 12px; padding-left: 10px; padding-right: 10px; } }
