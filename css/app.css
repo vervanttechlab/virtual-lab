@@ -358,3 +358,19 @@ table.grid td.anchor.mk-bad, table.grid td.anchor.mk-ok { box-shadow: inset 0 0 
 .tstep p { margin: 0 0 8px; }
 .tn { width: 24px; height: 24px; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
 @media (max-width: 600px) { .hide-sm { display: none; } }
+
+/* ------------------------------------------------------------------ feedback: loading bar, pressed and saving states */
+#loadbar { position: fixed; left: 0; right: 0; top: 40px; height: 3px; z-index: 40; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity .15s; }
+#loadbar.on, #loadbar.route { opacity: 1; }
+#loadbar::before { content: ""; position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); animation: loadbar 1.1s ease-in-out infinite; }
+:root[data-theme="dark"] #loadbar::before { background: #5ec98a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #loadbar::before { background: #5ec98a; } }
+@keyframes loadbar { 0% { left: -35%; } 100% { left: 100%; } }
+.btn:active:not(:disabled), .rbtn:active, .key:active, .tab:active, .rtab:active, .sw:active:not(:disabled) { transform: translateY(1px); filter: brightness(.94); }
+a.row:active { background: var(--accent-soft); }
+.btn:disabled { cursor: progress; }
+.sw.saving { cursor: progress; opacity: 1; background-image: repeating-linear-gradient(-45deg, transparent 0 6px, rgba(16,124,65,.16) 6px 12px);
+  background-size: 17px 17px; animation: saving .6s linear infinite; }
+@keyframes saving { to { background-position: 17px 0; } }
+.livedot { min-width: 160px; }
+@media (prefers-reduced-motion: reduce) { #loadbar::before, .sw.saving { animation: none; } #loadbar::before { left: 0; width: 100%; opacity: .6; } }

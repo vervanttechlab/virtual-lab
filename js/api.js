@@ -18,7 +18,17 @@ export const trainer = {
 
 export class NetError extends Error {}
 
-export async function call(action, body = {}, { timeout = 25000, auth = true } = {}) {
+// Busy indicator: counts foreground server calls so the UI can show a loading bar (background calls pass quiet: true).
+let busy = 0;
+const busySubs = new Set();
+export const onBusy = (fn) => { busySubs.add(fn); fn(busy > 0); return () => busySubs.delete(fn); };
+const setBusy = (d) => { busy = Math.max(0, busy + d); busySubs.forEach((fn) => fn(busy > 0)); };
+
+export async function call(action, body = {}, { timeout = 25000, auth = true, quiet = false } = {}) {
+  if (!quiet) setBusy(1);
+  try { return await call_(action, body, { timeout, auth }); } finally { if (!quiet) setBusy(-1); }
+}
+async function call_(action, body, { timeout, auth }) {
   const url = apiUrl();
   if (!url) throw new NetError("No server configured (demo mode).");
   const s = session.get();
@@ -40,7 +50,7 @@ export async function call(action, body = {}, { timeout = 25000, auth = true } =
   if (!data.ok) throw new Error(data.error || "Server error");
   return data;
 }
-export const trainerCall = (action, body = {}) => call(action, { ...body, key: trainer.get() }, { auth: false });
+export const trainerCall = (action, body = {}, opt = {}) => call(action, { ...body, key: trainer.get() }, { auth: false, ...opt });
 
 // ------------------------------------------------------------------ offline queue
 const QK = "dal3_queue";
@@ -60,7 +70,7 @@ export const queue = {
       while (q.length) {
         const it = q[0];
         try {
-          const r = await call(it.action, it.body);
+          const r = await call(it.action, it.body, { quiet: true });
           if (it.onDoneKey) store.set(it.onDoneKey, { ...(store.get(it.onDoneKey) || {}), server: r, pending: false });
         } catch (e) {
           if (e instanceof NetError) break;           // still offline: try later
@@ -86,7 +96,7 @@ setInterval(() => queue.flush(), 30000);
 export async function sendOrQueue(action, body, opts = {}) {
   if (demoMode()) return { sent: false, demo: true };
   try {
-    const data = await call(action, body);
+    const data = await call(action, body, { quiet: !!opts.quiet });
     return { sent: true, data };
   } catch (e) {
     if (e instanceof NetError) {

@@ -1,6 +1,6 @@
 // DAL3 Virtual Lab: router and views (student + trainer).
 import { CONFIG } from "./config.js";
-import { call, trainerCall, sendOrQueue, session, trainer, demoMode, queue, onQueue, apiUrl, NetError } from "./api.js";
+import { call, trainerCall, sendOrQueue, session, trainer, demoMode, queue, onQueue, onBusy, apiUrl, NetError } from "./api.js";
 import { Workbook } from "./workbook.js";
 import { SheetUI } from "./grid.js";
 import { buildSubmissionFile, downloadBlob } from "./export.js";
@@ -122,67 +122,86 @@ async function viewLogin() {
   });
 }
 
+/** Render with the cached config at once (instant page), then refresh from the server and re-render only if something changed. */
+async function withConfig(render) {
+  const cached = demoMode() ? null : store.get(`dal3_cfg_${uid()}`);
+  if (!cached) return render(await loadConfig(true));
+  const here = location.hash;
+  await render(cached);
+  loadConfig(true).then(async (fresh) => {
+    const sig = (c) => JSON.stringify([c.enabled, c.results, c.links]);
+    if (location.hash !== here || sig(fresh) === sig(cached)) return;
+    const y = window.scrollY;
+    await render(fresh);
+    window.scrollTo(0, y);
+  }).catch(() => {});
+}
+
 async function viewHome() {
-  const [idx, cfg] = await Promise.all([getIndex(), loadConfig(true)]);
-  const rows = idx.days.map((d) => {
-    const open = d.activities.filter((a) => isOpen(cfg, d.tag, a.id)).length;
-    const res = cfg.results[d.tag] || {};
-    const done = Object.keys(res).filter((k) => k !== "quiz").length;
-    return el("a", { class: "row daysrow", href: `#/day/${d.day}` },
-      el("div", { class: "num" }, `DAY ${String(d.day).padStart(2, "0")}`),
-      el("div", {}, el("div", { class: "title" }, d.title), el("div", { class: "sub" }, d.unit)),
-      el("div", { class: "status c-count" }, cfg.enabled ? [el("span", { class: "tag" + (open ? " good" : "") }, `${open}/${d.activities.length} OPEN`),
-        done ? el("span", { class: "tag info" }, `${done} SUBMITTED`) : ""] : el("span", { class: "tag" }, `${d.activities.length} ACTIVITIES`)),
-      el("div", { class: "chev" }, icon("chev")));
+  const idx = await getIndex();
+  return withConfig(async (cfg) => {
+    const rows = idx.days.map((d) => {
+      const open = d.activities.filter((a) => isOpen(cfg, d.tag, a.id)).length;
+      const res = cfg.results[d.tag] || {};
+      const done = Object.keys(res).filter((k) => k !== "quiz").length;
+      return el("a", { class: "row daysrow", href: `#/day/${d.day}` },
+        el("div", { class: "num" }, `DAY ${String(d.day).padStart(2, "0")}`),
+        el("div", {}, el("div", { class: "title" }, d.title), el("div", { class: "sub" }, d.unit)),
+        el("div", { class: "status c-count" }, cfg.enabled ? [el("span", { class: "tag" + (open ? " good" : "") }, `${open}/${d.activities.length} OPEN`),
+          done ? el("span", { class: "tag info" }, `${done} SUBMITTED`) : ""] : el("span", { class: "tag" }, `${d.activities.length} ACTIVITIES`)),
+        el("div", { class: "chev" }, icon("chev")));
+    });
+    shell("Home", null,
+      el("div", { class: "pagehead" }, el("div", { class: "kicker" }, "Data Analytics Level III"),
+        el("h2", {}, `Welcome, ${(session.get().name || "").split(" ")[0] || "trainee"}`),
+        el("div", { class: "meta" }, cfg.offline ? "Offline. Keep working: answers are sent when the connection returns." :
+          "Activities appear as your trainer opens them.")),
+      el("div", { class: "label" }, "Training days"),
+      el("div", { class: "list" }, ...rows),
+      el("p", { class: "small muted", style: "margin-top:10px" }, "Days 4 to 15 are added as the course progresses."));
   });
-  shell("Home", null,
-    el("div", { class: "pagehead" }, el("div", { class: "kicker" }, "Data Analytics Level III"),
-      el("h2", {}, `Welcome, ${(session.get().name || "").split(" ")[0] || "trainee"}`),
-      el("div", { class: "meta" }, cfg.offline ? "Offline. Keep working: answers are sent when the connection returns." :
-        "Activities appear as your trainer opens them.")),
-    el("div", { class: "label" }, "Training days"),
-    el("div", { class: "list" }, ...rows),
-    el("p", { class: "small muted", style: "margin-top:10px" }, "Days 4 to 15 are added as the course progresses."));
 }
 
 async function viewDay(n) {
-  const [day, cfg] = await Promise.all([getDay(n), loadConfig(true)]);
-  const tag = day.tag, res = cfg.results[tag] || {}, local = store.get(K.res(tag), {});
-  const statusOf = (open, r, l) => {
-    if (!open) return [el("span", { class: "tag" }, "CLOSED"), el("span", { class: "muted" }, "Opens when the trainer starts it")];
-    if (r) return [el("span", { class: "tag good" }, "SUBMITTED"), el("span", {}, fmtScore(r))];
-    if (l && l.pending) return [el("span", { class: "tag warn" }, "UNSENT"), el("span", { class: "muted" }, "Sends when online")];
-    if (l && l.checked) return [el("span", { class: "tag info" }, "IN PROGRESS"), el("span", {}, `${Math.round(100 * l.checked.auto / Math.max(1, l.checked.autoMax))}% correct`)];
-    return [el("span", { class: "tag" }, "NOT STARTED")];
-  };
-  const rows = day.activities.map((a) => {
-    const open = isOpen(cfg, tag, a.id), r = res[a.id];
-    return el(open ? "a" : "div", { class: "row actsrow" + (open ? "" : " closed"), href: open ? `#/act/${n}/${a.id}` : null },
-      el("div", { class: "num" }, a.id),
-      el("div", { class: "title" }, a.title),
-      el("div", { class: "sub c-mode" }, a.mode), el("div", { class: "sub c-min" }, `${a.minutes} min`), el("div", { class: "sub c-pts" }, `${a.points} pts`),
-      el("div", { class: "status" }, ...statusOf(open, r, local[a.id])),
-      el("div", { class: "chev" }, open ? icon("chev") : icon("padlock")),
-      r && r.feedback ? el("div", { class: "feedback" }, "Trainer feedback: " + r.feedback) : "");
+  const day = await getDay(n);
+  return withConfig(async (cfg) => {
+    const tag = day.tag, res = cfg.results[tag] || {}, local = store.get(K.res(tag), {});
+    const statusOf = (open, r, l) => {
+      if (!open) return [el("span", { class: "tag" }, "CLOSED"), el("span", { class: "muted" }, "Opens when the trainer starts it")];
+      if (r) return [el("span", { class: "tag good" }, "SUBMITTED"), el("span", {}, fmtScore(r))];
+      if (l && l.pending) return [el("span", { class: "tag warn" }, "UNSENT"), el("span", { class: "muted" }, "Sends when online")];
+      if (l && l.checked) return [el("span", { class: "tag info" }, "IN PROGRESS"), el("span", {}, `${Math.round(100 * l.checked.auto / Math.max(1, l.checked.autoMax))}% correct`)];
+      return [el("span", { class: "tag" }, "NOT STARTED")];
+    };
+    const rows = day.activities.map((a) => {
+      const open = isOpen(cfg, tag, a.id), r = res[a.id];
+      return el(open ? "a" : "div", { class: "row actsrow" + (open ? "" : " closed"), href: open ? `#/act/${n}/${a.id}` : null },
+        el("div", { class: "num" }, a.id),
+        el("div", { class: "title" }, a.title),
+        el("div", { class: "sub c-mode" }, a.mode), el("div", { class: "sub c-min" }, `${a.minutes} min`), el("div", { class: "sub c-pts" }, `${a.points} pts`),
+        el("div", { class: "status" }, ...statusOf(open, r, local[a.id])),
+        el("div", { class: "chev" }, open ? icon("chev") : icon("padlock")),
+        r && r.feedback ? el("div", { class: "feedback" }, "Trainer feedback: " + r.feedback) : "");
+    });
+    const qOpen = isOpen(cfg, tag, "quiz"), qr = res.quiz;
+    const head = el("div", { class: "listhead actsrow acts" }, el("div", {}, "No."), el("div", {}, "Activity"), el("div", {}, "Mode"),
+      el("div", {}, "Time"), el("div", {}, "Points"), el("div", {}, "Status"), el("div", {}));
+    shell(`Day ${n}`, "#/",
+      el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} · ${day.unit}`), el("h2", {}, day.title)),
+      el("div", { class: "toolrow" },
+        el("a", { class: "btn", href: `#/lesson/${n}` }, icon("book"), "Lesson"),
+        el("a", { class: "btn", href: `#/sheet/${n}` }, icon("grid"), "Practice workbook"),
+        CONFIG.VIDEOS[n] ? el("a", { class: "btn", href: CONFIG.VIDEOS[n], target: "_blank", rel: "noopener" }, icon("play"), "Demo video") : ""),
+      el("div", { class: "label" }, "Activities"), head, el("div", { class: "list" }, ...rows),
+      el("div", { class: "label" }, "Self-check"),
+      el("div", { class: "list", style: "border-top:1px solid var(--line)" },
+        el(qOpen ? "a" : "div", { class: "row actsrow" + (qOpen ? "" : " closed"), href: qOpen ? `#/quiz/${n}` : null },
+          el("div", { class: "num" }, "Q"), el("div", { class: "title" }, day.quiz.title),
+          el("div", { class: "sub c-mode" }, "Individual"), el("div", { class: "sub c-min" }, "20 min"), el("div", { class: "sub c-pts" }, `${day.quiz.items.length} items`),
+          el("div", { class: "status" }, ...(!qOpen ? [el("span", { class: "tag" }, "CLOSED")] : qr ? [el("span", { class: qr.auto / qr.autoMax >= 0.8 ? "tag good" : "tag warn" },
+            `${qr.auto}/${qr.autoMax}`), el("span", { class: "muted" }, "last attempt")] : [el("span", { class: "tag" }, "PASS MARK 80%")])),
+          el("div", { class: "chev" }, qOpen ? icon("chev") : icon("padlock")))));
   });
-  const qOpen = isOpen(cfg, tag, "quiz"), qr = res.quiz;
-  const head = el("div", { class: "listhead actsrow acts" }, el("div", {}, "No."), el("div", {}, "Activity"), el("div", {}, "Mode"),
-    el("div", {}, "Time"), el("div", {}, "Points"), el("div", {}, "Status"), el("div", {}));
-  shell(`Day ${n}`, "#/",
-    el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} · ${day.unit}`), el("h2", {}, day.title)),
-    el("div", { class: "toolrow" },
-      el("a", { class: "btn", href: `#/lesson/${n}` }, icon("book"), "Lesson"),
-      el("a", { class: "btn", href: `#/sheet/${n}` }, icon("grid"), "Practice workbook"),
-      CONFIG.VIDEOS[n] ? el("a", { class: "btn", href: CONFIG.VIDEOS[n], target: "_blank", rel: "noopener" }, icon("play"), "Demo video") : ""),
-    el("div", { class: "label" }, "Activities"), head, el("div", { class: "list" }, ...rows),
-    el("div", { class: "label" }, "Self-check"),
-    el("div", { class: "list", style: "border-top:1px solid var(--line)" },
-      el(qOpen ? "a" : "div", { class: "row actsrow" + (qOpen ? "" : " closed"), href: qOpen ? `#/quiz/${n}` : null },
-        el("div", { class: "num" }, "Q"), el("div", { class: "title" }, day.quiz.title),
-        el("div", { class: "sub c-mode" }, "Individual"), el("div", { class: "sub c-min" }, "20 min"), el("div", { class: "sub c-pts" }, `${day.quiz.items.length} items`),
-        el("div", { class: "status" }, ...(!qOpen ? [el("span", { class: "tag" }, "CLOSED")] : qr ? [el("span", { class: qr.auto / qr.autoMax >= 0.8 ? "tag good" : "tag warn" },
-          `${qr.auto}/${qr.autoMax}`), el("span", { class: "muted" }, "last attempt")] : [el("span", { class: "tag" }, "PASS MARK 80%")])),
-        el("div", { class: "chev" }, qOpen ? icon("chev") : icon("padlock")))));
 }
 const fmtScore = (r) => {
   const graded = r.manualMax ? (r.manual !== "" && r.manual != null) : true;
@@ -429,6 +448,7 @@ async function viewActivity(n, actId) {
       return toast("Demo mode: saved on this device only.");
     }
     btnSubmit.disabled = true;
+    btnSubmit.textContent = "Submitting…";
     try {
       const r = await sendOrQueue("submit", body, { onDoneKey: null });
       if (r.sent) {
@@ -446,6 +466,7 @@ async function viewActivity(n, actId) {
       toast(e.message, "bad");
     } finally {
       btnSubmit.disabled = false;
+      btnSubmit.textContent = "Submit";
     }
   });
 
@@ -455,7 +476,7 @@ async function viewActivity(n, actId) {
     dirty = false;
     const { sub, score } = await evaluate();
     sendOrQueue("save", { day: tag, act: act.id, final: false, sub, wb: wb ? wb.serialize() : null,
-      client: { auto: score.auto, autoMax: score.autoMax } }, { replaceKey: `save|${tag}|${act.id}` }).catch(() => {});
+      client: { auto: score.auto, autoMax: score.autoMax } }, { replaceKey: `save|${tag}|${act.id}`, quiet: true }).catch(() => {});
   }
   const timer = setInterval(() => saveDraft(false), CONFIG.AUTOSAVE_SECONDS * 1000);
   saveDraft(true);
@@ -579,19 +600,26 @@ async function viewTrainer() {
       const changed = inputs.filter((i) => (cur[i.name] || "") !== i.value.trim());
       if (!changed.length) return m.close();
       save.disabled = true;
+      save.textContent = "Saving…";
       try {
         for (const i of changed) await trainerCall("setLink", { day: tag, item: i.name, url: i.value.trim() });
         const odd = changed.filter((i) => i.value.trim() && !/classroom\.google\.com/i.test(i.value)).map((i) => i.name);
         toast(`Saved ${changed.length} link(s).` + (odd.length ? ` Note: ${odd.join(", ")} is not a classroom.google.com link.` : ""), "good");
         m.close();
         refresh();
-      } catch (err) { toast(err.message, "bad"); save.disabled = false; }
+      } catch (err) { toast(err.message, "bad"); save.disabled = false; save.textContent = "Save links"; }
     });
   });
 
-  async function refresh() {
+  let refreshing = false, pendingSwitch = 0;
+  async function refresh(quiet = true) {
+    if (refreshing) return;
+    refreshing = true;
+    live.textContent = "Updating…";
     try {
-      data = await trainerCall("progress");
+      const fresh = await trainerCall("progress", {}, { quiet });
+      if (pendingSwitch) fresh.config = data ? data.config : fresh.config;   // never undo a switch that is still saving
+      data = fresh;
       live.textContent = `Live · updated ${new Date().toLocaleTimeString()}`;
       live.className = "livedot";
       render();
@@ -599,6 +627,28 @@ async function viewTrainer() {
       live.textContent = e.message;
       live.className = "livedot off";
       if (/trainer key/i.test(e.message)) { trainer.clear(); trainerLogin(); }
+    } finally {
+      refreshing = false;
+    }
+  }
+  /** Switch activities on/off: the switch changes at once, shows "saving", then confirms or rolls back. */
+  async function setOpen(tag, ids, enabled, buttons) {
+    const en = (data.config[tag] = data.config[tag] || {});
+    const before = ids.map((id) => en[id]);
+    ids.forEach((id) => { en[id] = enabled; });
+    buttons.forEach((b) => { b.classList.toggle("on", enabled); b.classList.add("saving"); b.disabled = true; b.setAttribute("aria-pressed", String(enabled)); });
+    pendingSwitch++;
+    try {
+      const r = await trainerCall("setConfig", ids.length > 1 ? { day: tag, item: "*", enabled, items: ids } : { day: tag, item: ids[0], enabled });
+      if (r.config) data.config = r.config;
+      const names = ids.map((id) => (id === "quiz" ? "the quiz" : id));
+      toast(`${names.length > 2 ? "All activities" : names.join(" and ")} ${names.length > 1 ? "are" : "is"} now ${enabled ? "OPEN" : "CLOSED"} to students.`, "good");
+    } catch (e) {
+      ids.forEach((id, i) => { en[id] = before[i]; });
+      toast(`Not saved: ${e.message}`, "bad");
+    } finally {
+      pendingSwitch--;
+      render();
     }
   }
   async function render() {
@@ -609,14 +659,16 @@ async function viewTrainer() {
     toggles.replaceChildren(el("span", { class: "lbl" }, "Open to students"), ...items.map((it) => {
       const b = el("button", { class: "sw" + (en[it.id] ? " on" : ""), type: "button", title: `${it.title}: ${en[it.id] ? "open (click to close)" : "closed (click to open)"}`,
         "aria-pressed": en[it.id] ? "true" : "false" }, it.id === "quiz" ? "QUIZ" : it.id);
-      b.addEventListener("click", async () => {
-        b.disabled = true;
-        try { await trainerCall("setConfig", { day: tag, item: it.id, enabled: !en[it.id] }); await refresh(); }
-        catch (e) { toast(e.message, "bad"); b.disabled = false; }
-      });
+      b.addEventListener("click", () => setOpen(tag, [it.id], !en[it.id], [b]));
       return b;
-    }), el("button", { class: "btn small", type: "button", onclick: async () => { await trainerCall("setConfig", { day: tag, item: "*", enabled: true, items: items.map((i) => i.id) }); refresh(); } }, "Open all"),
-    el("button", { class: "btn small", type: "button", onclick: async () => { await trainerCall("setConfig", { day: tag, item: "*", enabled: false, items: items.map((i) => i.id) }); refresh(); } }, "Close all"));
+    }), el("button", { class: "btn small", type: "button", onclick: (e) => {
+      e.currentTarget.disabled = true;
+      setOpen(tag, items.map((i) => i.id), true, [...toggles.querySelectorAll(".sw")]);
+    } }, "Open all"),
+    el("button", { class: "btn small", type: "button", onclick: (e) => {
+      e.currentTarget.disabled = true;
+      setOpen(tag, items.map((i) => i.id), false, [...toggles.querySelectorAll(".sw")]);
+    } }, "Close all"));
 
     const sub = indexBy(data.subs.filter((s) => s.day === tag), (s) => `${s.id}|${s.act}`);
     const lv = indexBy(data.live.filter((s) => s.day === tag), (s) => `${s.id}|${s.act}`);
@@ -655,8 +707,8 @@ async function viewTrainer() {
       el("span", { class: "lg-draft" }, "Working now: % of auto-checked points correct"), el("span", { class: "lg-pend" }, "* or TO GRADE: written answers need your grade"),
       el("span", {}, "LATE: submitted after you closed it"), el("span", {}, "Select a cell to open the student's work"));
   }
-  refresh();
-  const t = setInterval(refresh, CONFIG.BOARD_REFRESH_SECONDS * 1000);
+  refresh(false);
+  const t = setInterval(() => refresh(true), CONFIG.BOARD_REFRESH_SECONDS * 1000);
   onLeave(() => clearInterval(t));
 }
 const indexBy = (arr, f) => Object.fromEntries(arr.map((x) => [f(x), x]));
@@ -787,7 +839,15 @@ function debounce(fn, ms) {
   d.flush = () => { clearTimeout(t); fn(); };
   return d;
 }
+const loadbar = el("div", { id: "loadbar", role: "progressbar", "aria-label": "Loading" });
+document.body.append(loadbar);
+onBusy((b) => loadbar.classList.toggle("on", b));
+
 async function route() {
+  loadbar.classList.add("route");
+  try { await route_(); } finally { loadbar.classList.remove("route"); }
+}
+async function route_() {
   cleanup.forEach((fn) => { try { fn(); } catch (e) { console.warn(e); } });
   cleanup = [];
   document.querySelectorAll(".modal-back").forEach((m) => m.remove());
