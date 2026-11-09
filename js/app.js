@@ -94,7 +94,6 @@ function accountMenu() {
   const box = el("div", { class: "form" },
     el("p", {}, el("b", {}, s.name || s.id), el("span", { class: "muted" }, `  ${s.id}${s.section ? " · " + s.section : ""}`)),
     el("div", { class: "actions" },
-    el("button", { class: "btn", type: "button", onclick: () => { m.close(); location.hash = "#/trainer"; } }, "Trainer board"),
     el("button", { class: "btn wide danger", type: "button", onclick: () => {
       if (queue.list().length && !confirm("Some work is still waiting to be sent. Sign out anyway? It will be sent after you sign in again on this phone.")) return;
       session.clear(); m.close(); location.hash = "#/login";
@@ -114,8 +113,7 @@ async function viewLogin() {
       <label>Student ID <input name="sid" required autocapitalize="characters" autocomplete="username"></label>
       <label>PIN <input name="pin" required inputmode="numeric" type="password" autocomplete="current-password" maxlength="8"></label>`}
     <button class="btn primary wide" type="submit">Sign in</button>
-    <p class="small" style="margin:12px 0 0"><a href="guide.html">New here? How to install the app and sign in</a></p>
-    <p class="small muted" style="margin:6px 0 0">Trainer? <a href="#/trainer">Open the trainer board</a></p>`;
+    <p class="small" style="margin:12px 0 0"><a href="guide.html">New here? How to install the app and sign in</a></p>`;
   shell("Sign in", null, f);
   if (!demoMode()) call("ping", {}, { quiet: true, auth: false }).catch(() => {});      // wake the Apps Script server while they type
   loadScript("vendor/hyperformula.full.min.js").catch(() => {});                       // and fetch the engine in the background
@@ -603,7 +601,10 @@ async function viewTrainer() {
   const linksBtn = el("button", { class: "btn small", type: "button", title: "Google Classroom assignment link for each activity" }, "Classroom links");
   const exportBtn = el("button", { class: "btn small", type: "button" }, icon("download"), "Export CSV");
   const settings = el("button", { class: "btn small icon", type: "button", title: "Board settings", "aria-label": "Board settings" }, icon("gear"));
-  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), linksBtn, exportBtn, settings), toggles, table, legend, { __cls: "page work" });
+  const logout = el("button", { class: "btn small", type: "button", title: "Log out of the trainer board on this browser" }, icon("logout"), "Log out");
+  logout.addEventListener("click", trainerLogout);
+  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), linksBtn, exportBtn, settings, logout),
+    toggles, table, legend, { __cls: "page work" });
   let data = null;
   settings.addEventListener("click", trainerSettings);
   daySel.addEventListener("change", () => { store.set("dal3_board_day", daySel.value); render(); });
@@ -655,7 +656,7 @@ async function viewTrainer() {
     } catch (e) {
       live.textContent = e.message;
       live.className = "livedot off";
-      if (/trainer key/i.test(e.message)) { trainer.clear(); trainerLogin(); }
+      if (/trainer key/i.test(e.message)) { trainer.clear(); toast("The trainer key was not accepted. Please enter it again.", "bad"); route(); }
     } finally {
       refreshing = false;
     }
@@ -748,9 +749,16 @@ async function viewTrainer() {
 }
 const indexBy = (arr, f) => Object.fromEntries(arr.map((x) => [f(x), x]));
 
+/** Forget the trainer key on this browser and show the key screen again (stops the board's auto-refresh). */
+function trainerLogout() {
+  trainer.clear();
+  toast("Logged out of the trainer board on this browser.", "good");
+  if (location.hash === "#/trainer") route(); else location.hash = "#/trainer";
+}
+
 function trainerLogin() {
   const f = el("form", { class: "form signin" });
-  f.innerHTML = `<h2>Trainer board</h2><p class="sub">Enter the trainer key from the Apps Script log.</p>
+  f.innerHTML = `<h2>Trainer board</h2><p class="sub">Enter your trainer key. To see it: in your Google Sheet, open the <b>DAL3 Lab</b> menu › <b>Show class code and trainer key</b>.</p>
     ${demoMode() ? `<p class="note">No class server is configured yet. Follow SETUP.md, put the web app URL in js/config.js, or paste it below.</p>
       <label>Web app URL <input name="api" placeholder="https://script.google.com/macros/s/.../exec"></label>` : ""}
     <label>Trainer key <input name="key" type="password" required autocomplete="current-password"></label>
@@ -773,7 +781,7 @@ function trainerSettings() {
       if (u.trim()) store.set("dal3_api_override", u.trim()); else store.del("dal3_api_override");
       location.reload();
     } }, "Change server URL"),
-    el("button", { class: "btn wide danger", type: "button", onclick: () => { trainer.clear(); m.close(); location.hash = "#/"; } }, "Lock the trainer board"));
+    el("button", { class: "btn wide danger", type: "button", onclick: () => { m.close(); trainerLogout(); } }, "Log out of the trainer board"));
   const m = modal("Board settings", box);
 }
 
