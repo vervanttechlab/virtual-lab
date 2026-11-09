@@ -4,6 +4,7 @@ import { call, trainerCall, sendOrQueue, session, trainer, demoMode, queue, onQu
 import { Workbook } from "./workbook.js";
 import { SheetUI } from "./grid.js";
 import { buildSubmissionFile, downloadBlob } from "./export.js";
+import { VIDEOS, embedUrl } from "./videos.js";
 import { el, esc, modal, toast, store, sha, timeAgo, icon } from "./ui.js";
 
 const C = window.DAL3Check;
@@ -216,7 +217,7 @@ async function viewDay(n) {
       el("div", { class: "toolrow" },
         el("a", { class: "btn", href: `#/lesson/${n}` }, icon("book"), "Lesson"),
         el("a", { class: "btn", href: `#/sheet/${n}` }, icon("grid"), "Practice workbook"),
-        CONFIG.VIDEOS[n] ? el("a", { class: "btn", href: CONFIG.VIDEOS[n], target: "_blank", rel: "noopener" }, icon("play"), "Demo video") : ""),
+        VIDEOS[n] ? el("a", { class: "btn", href: `#/lesson/${n}` }, icon("play"), "Demo video") : ""),
       el("div", { class: "label" }, "Activities"), head, el("div", { class: "list" }, ...rows),
       el("div", { class: "label" }, "Self-check"),
       el("div", { class: "list", style: "border-top:1px solid var(--line)" },
@@ -236,15 +237,49 @@ const fmtScore = (r) => {
 };
 const round = (x) => Math.round(Number(x) * 10) / 10;
 
+/** A video box that loads the Google Drive player only when tapped (saves mobile data); one player at a time. */
+function videoBox(url, title, sub, chapterList) {
+  const src = embedUrl(url);
+  const stage = el("div", { class: "vstage" });
+  const play = el("button", { class: "vplay", type: "button", "aria-label": `Play: ${title}` },
+    el("span", { class: "vtri" }), el("span", {}, "Play video"));
+  stage.append(play);
+  play.addEventListener("click", () => {
+    if (!navigator.onLine) return toast("You are offline. Connect to the internet to watch the video.", "bad");
+    document.querySelectorAll(".vstage iframe").forEach((f) => {                 // stop any other player
+      const s = f.parentElement; f.remove(); s.classList.remove("on"); s.querySelector(".vplay").hidden = false;
+    });
+    play.hidden = true;
+    stage.classList.add("on");
+    stage.append(el("iframe", { src, title, allow: "autoplay; fullscreen", allowfullscreen: true, loading: "lazy", referrerpolicy: "no-referrer" }));
+  });
+  return el("div", { class: "vbox" },
+    el("div", { class: "vhead" }, el("div", { class: "vlabel" }, "Watch it in Excel"), el("div", { class: "vtitle" }, title), sub ? el("div", { class: "vsub" }, sub) : ""),
+    stage, chapterList || "",
+    el("p", { class: "vnote" }, "If the video does not play, ", el("a", { href: url, target: "_blank", rel: "noopener" }, "open it in Google Drive"), "."));
+}
+
 async function viewLesson(n) {
   const day = await getDay(n);
+  const vid = VIDEOS[n];
+  const chapterFor = (h) => vid && vid.chapters.find((c) => h.startsWith(c.part + " ") || h === c.part);
   const secs = day.lesson.map((s, i) => {
-    const d = el("details", { class: "lesson" }, el("summary", {}, s.h), el("div", { class: "prose", html: s.html }));
+    const body = [el("div", { class: "prose", html: s.html })];
+    const ch = chapterFor(s.h);
+    if (ch) body.push(videoBox(vid.url, ch.title, `This part of the demo starts at ${ch.start}` + (ch.end ? ` and ends at ${ch.end}` : "") +
+      `. Press play, then drag the slider to ${ch.start}.`));
+    const d = el("details", { class: "lesson" }, el("summary", {}, s.h, ch ? el("span", { class: "tag vtag" }, "VIDEO") : ""), ...body);
     if (i === 0) d.open = true;
     return d;
   });
-  shell(`Day ${n} › Lesson`, `#/day/${n}`, el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} lesson`), el("h2", {}, day.title)), ...secs);
+  const top = vid ? el("details", { class: "lesson", open: true }, el("summary", {}, "Demo video", el("span", { class: "tag vtag" }, vid.length || "VIDEO")),
+    el("div", { class: "prose" }, videoBox(vid.url, `Day ${n} demonstration: ${day.title}`, "The whole demonstration. Each part of the lesson below also has its own chapter.",
+      el("table", { class: "vchapters" }, el("tbody", {}, ...vid.chapters.slice().sort((a, b) => toSec(a.start) - toSec(b.start)).map((c) =>
+        el("tr", {}, el("td", { class: "mono" }, `${c.start}${c.end ? "–" + c.end : ""}`), el("td", {}, c.title), el("td", { class: "muted" }, c.part)))))))) : "";
+  if (top) secs[0].open = false;
+  shell(`Day ${n} › Lesson`, `#/day/${n}`, el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} lesson`), el("h2", {}, day.title)), top, ...secs);
 }
+const toSec = (t) => String(t).split(":").reduce((a, x) => a * 60 + Number(x), 0);
 
 async function viewSheet(n) {
   const day = await getDay(n);

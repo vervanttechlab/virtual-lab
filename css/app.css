@@ -381,3 +381,22 @@ a.row:active { background: var(--accent-soft); }
 @media (prefers-reduced-motion: reduce) { #loadbar::before, .sw.saving::before, .btn.busy::before { animation-duration: 2s; } #loadbar::before { left: 0; width: 100%; opacity: .6; } }
 .updatebar { position: fixed; left: 0; right: 0; top: 40px; z-index: 45; display: flex; align-items: center; justify-content: center; gap: 12px;
   padding: 6px 12px; background: var(--warn-bg); border-bottom: 1px solid var(--warn); font-size: 13px; }
+
+/* ------------------------------------------------------------------ lesson videos */
+.vbox { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--panel-2); margin: 14px 0 4px; }
+.vhead { padding: 8px 12px; }
+.vlabel { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.vtitle { font-weight: 600; font-size: 14px; }
+.vsub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.vstage { position: relative; aspect-ratio: 16 / 9; background: #1b1a19; }
+.vstage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.vplay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; border: 0;
+  background: linear-gradient(135deg, #1f3d2c, #1b1a19); color: #fff; font: 600 14px var(--ui); cursor: pointer; }
+.vplay:hover .vtri { transform: scale(1.06); }
+.vtri { width: 54px; height: 54px; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; transition: transform .15s; }
+.vtri::after { content: ""; border-left: 16px solid #fff; border-top: 10px solid transparent; border-bottom: 10px solid transparent; margin-left: 4px; }
+.vnote { font-size: 11px; color: var(--muted); padding: 6px 12px; margin: 0; }
+.vchapters { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--panel); }
+.vchapters td { border-top: 1px solid var(--line); padding: 5px 12px; }
+.vchapters td:first-child { white-space: nowrap; width: 1%; }
+.vtag { margin-left: auto; color: var(--accent); border-color: var(--accent); }
