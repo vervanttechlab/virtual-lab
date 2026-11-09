@@ -28,12 +28,28 @@ export async function call(action, body = {}, { timeout = 25000, auth = true, qu
   if (!quiet) setBusy(1);
   try { return await call_(action, body, { timeout, auth }); } finally { if (!quiet) setBusy(-1); }
 }
+const newNonce = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A flaky DNS / Wi-Fi often loses only the REPLY: Google already ran the action. Each request therefore carries a one-time
+// id (nonce); the server remembers the reply for that id, so retrying is safe (no double submissions or double switches).
 async function call_(action, body, { timeout, auth }) {
   const url = apiUrl();
   if (!url) throw new NetError("No server configured (demo mode).");
   const s = session.get();
   const payload = { action, ...body };
+  if (!payload.nonce) payload.nonce = newNonce();
   if (auth && s) Object.assign(payload, { id: s.id, token: s.token });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send_(url, payload, timeout);
+    } catch (e) {
+      if (!(e instanceof NetError) || !navigator.onLine || attempt >= 2) throw e;
+      await sleep(attempt ? 2500 : 900);                 // try again: 0.9 s, then 2.5 s
+    }
+  }
+}
+async function send_(url, payload, timeout) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeout);
   let res;
@@ -95,6 +111,7 @@ setInterval(() => queue.flush(), 30000);
 /** Send now; if offline, queue it. Returns {sent:true, data} or {sent:false}. */
 export async function sendOrQueue(action, body, opts = {}) {
   if (demoMode()) return { sent: false, demo: true };
+  body = { ...body, nonce: body.nonce || newNonce() };   // same id if it is queued and sent again later
   try {
     const data = await call(action, body, { quiet: !!opts.quiet });
     return { sent: true, data };
