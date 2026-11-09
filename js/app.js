@@ -133,7 +133,7 @@ async function viewLogin() {
     try {
       const r = await call("login", { cls: f.cls.value.trim(), sid: f.sid.value.trim(), pin: f.pin.value.trim() }, { auth: false });
       session.set({ id: r.id, name: r.name, token: r.token, section: r.section });
-      if (r.config) store.set(`dal3_cfg_${r.id}`, { ...r.config, at: Date.now() });   // Home opens without another round trip
+      if (r.config) store.set(`dal3_cfg_${r.id}`, { ...r.config, at: Date.now(), fromLogin: true });   // Home opens without another round trip
       queue.flush();
       location.hash = "#/";
     } catch (err) {
@@ -150,7 +150,11 @@ async function withConfig(render) {
   if (!cached) return render(await loadConfig(true));
   const here = location.hash;
   await render(cached);
-  if (Date.now() - (cached.at || 0) < 10000) return;           // just fetched (e.g. with the login reply): no second trip
+  if (cached.fromLogin && Date.now() - (cached.at || 0) < 10000) {   // the login reply just brought it: skip ONE refresh only
+    delete cached.fromLogin;
+    store.set(`dal3_cfg_${uid()}`, cached);
+    return;
+  }
   loadConfig(true).then(async (fresh) => {
     const sig = (c) => JSON.stringify([c.enabled, c.results, c.links]);
     if (location.hash !== here || sig(fresh) === sig(cached)) return;
@@ -905,4 +909,18 @@ window.addEventListener("hashchange", route);
 window.addEventListener("beforeunload", () => cleanup.forEach((fn) => { try { fn(); } catch { /* ignore */ } }));
 route();
 queue.flush();
-if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
+// Offline support + clean updates. When a new version takes over: reload on lists/lessons; inside an activity or a
+// workbook, ask first so a student's typing is never interrupted.
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloading) return;
+    const working = /^#\/(act|sheet|quiz)\//.test(location.hash);
+    if (!working) { reloading = true; location.reload(); return; }
+    const bar = el("div", { class: "updatebar", role: "status" }, "A new version of the lab is ready.",
+      el("button", { class: "btn small primary", type: "button", onclick: () => { reloading = true; location.reload(); } }, "Reload"));
+    document.body.append(bar);
+  });
+}

@@ -379,3 +379,5 @@ a.row:active { background: var(--accent-soft); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .livedot { min-width: 160px; }
 @media (prefers-reduced-motion: reduce) { #loadbar::before, .sw.saving::before, .btn.busy::before { animation-duration: 2s; } #loadbar::before { left: 0; width: 100%; opacity: .6; } }
+.updatebar { position: fixed; left: 0; right: 0; top: 40px; z-index: 45; display: flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 6px 12px; background: var(--warn-bg); border-bottom: 1px solid var(--warn); font-size: 13px; }
