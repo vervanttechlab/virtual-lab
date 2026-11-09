@@ -1,8 +1,7 @@
 // Workbook model: HyperFormula engine + the day's template sheets + the student's edits, extra sheets
 // (ToolPak outputs), charts, highlight rules and number formats. Serialises to a small JSON for saving/submitting.
 const WB = window.WBCore;
-const HFLib = window.HyperFormula;
-if (window.installHFExtras && !HFLib.HyperFormula?.__dal3Extras) window.installHFExtras(HFLib);
+// The spreadsheet engine (HyperFormula, ~0.7 MB) is loaded on demand by loadEngine() in app.js.
 
 export class Workbook {
   constructor(day, saved) {
@@ -15,6 +14,9 @@ export class Workbook {
     this.meta = {};
     for (const s of day.sheets) this.meta[s.name] = s;
     for (const [n, s] of Object.entries(this.extra)) this.meta[n] = s;
+    const HFLib = window.HyperFormula;
+    if (!HFLib) throw new Error("The spreadsheet engine is not loaded yet.");
+    if (window.installHFExtras && !HFLib.HyperFormula?.__dal3Extras) window.installHFExtras(HFLib);
     this.hf = WB.buildHF(HFLib, day.sheets, saved.edits || {}, this.extra);
     this.edits = { ...(saved.edits || {}) };
     this.undoStack = [];

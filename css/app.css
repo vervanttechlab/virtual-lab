@@ -369,8 +369,13 @@ table.grid td.anchor.mk-bad, table.grid td.anchor.mk-ok { box-shadow: inset 0 0 
 .btn:active:not(:disabled), .rbtn:active, .key:active, .tab:active, .rtab:active, .sw:active:not(:disabled) { transform: translateY(1px); filter: brightness(.94); }
 a.row:active { background: var(--accent-soft); }
 .btn:disabled { cursor: progress; }
-.sw.saving { cursor: progress; opacity: 1; background-image: repeating-linear-gradient(-45deg, transparent 0 6px, rgba(16,124,65,.16) 6px 12px);
-  background-size: 17px 17px; animation: saving .6s linear infinite; }
-@keyframes saving { to { background-position: 17px 0; } }
+/* Saving: a spinner replaces the on/off track inside the button that was tapped */
+.sw.saving { cursor: progress; opacity: 1; }
+.sw.saving::before, .btn.busy::before { content: ""; width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; background: none; animation: spin .7s linear infinite; flex: none; }
+.sw.saving::before { margin: 0 5px; }
+.sw.saving::after { content: "Saving"; font: 600 10px var(--ui); letter-spacing: .04em; text-transform: uppercase; opacity: .8; }
+.btn.busy { cursor: progress; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .livedot { min-width: 160px; }
-@media (prefers-reduced-motion: reduce) { #loadbar::before, .sw.saving { animation: none; } #loadbar::before { left: 0; width: 100%; opacity: .6; } }
+@media (prefers-reduced-motion: reduce) { #loadbar::before, .sw.saving::before, .btn.busy::before { animation-duration: 2s; } #loadbar::before { left: 0; width: 100%; opacity: .6; } }

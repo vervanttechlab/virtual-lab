@@ -23,6 +23,25 @@ async function getDay(n) {
   return cache.days[tag];
 }
 const uid = () => (session.get() || {}).id || "guest";
+
+/** Load the spreadsheet engine + charts only when a workbook is opened (keeps sign-in and lists fast). */
+const scripts = {};
+function loadScript(src) {
+  if (!scripts[src]) {
+    scripts[src] = new Promise((ok, bad) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = ok;
+      s.onerror = () => { delete scripts[src]; bad(new Error("Could not load the workbook. Check your connection and try again.")); };
+      document.head.append(s);
+    });
+  }
+  return scripts[src];
+}
+async function loadEngine() {
+  await Promise.all([loadScript("vendor/hyperformula.full.min.js"), loadScript("vendor/chart.umd.js")]);
+  if (window.installHFExtras && !window.HyperFormula.HyperFormula?.__dal3Extras) window.installHFExtras(window.HyperFormula);
+}
 const K = {
   wb: (tag) => `dal3_wb_${uid()}_${tag}`,
   ans: (tag) => `dal3_ans_${uid()}_${tag}`,
@@ -98,6 +117,8 @@ async function viewLogin() {
     <p class="small" style="margin:12px 0 0"><a href="guide.html">New here? How to install the app and sign in</a></p>
     <p class="small muted" style="margin:6px 0 0">Trainer? <a href="#/trainer">Open the trainer board</a></p>`;
   shell("Sign in", null, f);
+  if (!demoMode()) call("ping", {}, { quiet: true, auth: false }).catch(() => {});      // wake the Apps Script server while they type
+  loadScript("vendor/hyperformula.full.min.js").catch(() => {});                       // and fetch the engine in the background
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = f.querySelector("button[type=submit]");
@@ -112,6 +133,7 @@ async function viewLogin() {
     try {
       const r = await call("login", { cls: f.cls.value.trim(), sid: f.sid.value.trim(), pin: f.pin.value.trim() }, { auth: false });
       session.set({ id: r.id, name: r.name, token: r.token, section: r.section });
+      if (r.config) store.set(`dal3_cfg_${r.id}`, { ...r.config, at: Date.now() });   // Home opens without another round trip
       queue.flush();
       location.hash = "#/";
     } catch (err) {
@@ -128,6 +150,7 @@ async function withConfig(render) {
   if (!cached) return render(await loadConfig(true));
   const here = location.hash;
   await render(cached);
+  if (Date.now() - (cached.at || 0) < 10000) return;           // just fetched (e.g. with the login reply): no second trip
   loadConfig(true).then(async (fresh) => {
     const sig = (c) => JSON.stringify([c.enabled, c.results, c.links]);
     if (location.hash !== here || sig(fresh) === sig(cached)) return;
@@ -227,6 +250,7 @@ async function viewSheet(n) {
   shell(`Day ${n} › Practice workbook`, `#/day/${n}`,
     el("p", { class: "small muted" }, `Your Day ${n} workbook. The activities use this same workbook, so formulas you enter here count there too.`),
     host);
+  await loadEngine();
   const wb = new Workbook(day, store.get(K.wb(day.tag)));
   const save = debounce(() => store.set(K.wb(day.tag), wb.serialize()), 600);
   const ui = new SheetUI(host, wb, { onChange: save });
@@ -245,6 +269,7 @@ async function viewActivity(n, actId) {
   const ans = (allAns[actId] = allAns[actId] || {});
   const results = store.get(K.res(tag), {});
   const needsSheet = act.sheet || act.parts.some((p) => ["cells", "spec", "textcells"].includes(p.type));
+  if (needsSheet) await loadEngine();
   const wb = needsSheet ? new Workbook(day, store.get(K.wb(tag))) : null;
   let dirty = false, ui = null;
   const saveLocal = debounce(() => {
@@ -662,11 +687,17 @@ async function viewTrainer() {
       b.addEventListener("click", () => setOpen(tag, [it.id], !en[it.id], [b]));
       return b;
     }), el("button", { class: "btn small", type: "button", onclick: (e) => {
-      e.currentTarget.disabled = true;
+      const btn = e.currentTarget;
+      toggles.querySelectorAll(".btn").forEach((x) => { x.disabled = true; });
+      btn.classList.add("busy");
+      btn.textContent = "Opening…";
       setOpen(tag, items.map((i) => i.id), true, [...toggles.querySelectorAll(".sw")]);
     } }, "Open all"),
     el("button", { class: "btn small", type: "button", onclick: (e) => {
-      e.currentTarget.disabled = true;
+      const btn = e.currentTarget;
+      toggles.querySelectorAll(".btn").forEach((x) => { x.disabled = true; });
+      btn.classList.add("busy");
+      btn.textContent = "Closing…";
       setOpen(tag, items.map((i) => i.id), false, [...toggles.querySelectorAll(".sw")]);
     } }, "Close all"));
 
@@ -803,7 +834,10 @@ async function openDetail(st, day, item, s, l) {
     if (payload.wb) {
       const host = el("div", { class: "sheethost ro" });
       const btn = el("button", { class: "btn", type: "button" }, "Show the student's workbook");
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.textContent = "Loading the workbook…";
+        try { await loadEngine(); } catch (e) { toast(e.message, "bad"); btn.disabled = false; btn.textContent = "Show the student's workbook"; return; }
         btn.remove();
         const wb = new Workbook(day, payload.wb);
         const marks = {};
