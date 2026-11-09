@@ -558,46 +558,7 @@ export class SheetUI {
       try { this.charts.set(spec.id, this.drawChart(cv, spec)); } catch (e) { card.append(el("p", { class: "hint" }, "Chart error: " + e.message)); }
     }
   }
-  drawChart(canvas, spec) {
-    const vals = (rng) => {
-      const g = WB.parseRef(rng, spec.sheet), out = [];
-      for (let r = g.r1; r <= g.r2; r++) out.push(this.wb.value(spec.sheet, r, g.c1));
-      return out;
-    };
-    const css = getComputedStyle(document.documentElement);
-    const ink = css.getPropertyValue("--ink").trim() || "#1d2433", grid = css.getPropertyValue("--line").trim() || "#d5dce6";
-    const colors = ["#1F4E79", "#C55A11", "#2E7D4F", "#7A4FB0"];
-    let data, options = { responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { labels: { color: ink } }, title: { display: !!spec.title, text: spec.title, color: ink, font: { size: 15 } } },
-      scales: { x: { ticks: { color: ink }, grid: { color: grid } }, y: { ticks: { color: ink }, grid: { color: grid } } } };
-    if (spec.type === "scatter") {
-      const xs = vals(spec.labels), ys = vals(spec.ranges[0]);
-      const pts = xs.map((x, i) => ({ x, y: ys[i] })).filter((p) => typeof p.x === "number" && typeof p.y === "number");
-      const ds = [{ label: spec.names[0] || "Y", data: pts, backgroundColor: colors[0], pointRadius: 4, type: "scatter" }];
-      if (spec.trendline && pts.length > 1) {
-        const L = ST.fitLine(pts.map((p) => p.x), pts.map((p) => p.y));
-        const xmin = Math.min(...pts.map((p) => p.x)), xmax = Math.max(...pts.map((p) => p.x));
-        ds.push({ label: `y = ${L.slope.toFixed(4)}x ${L.intercept < 0 ? "−" : "+"} ${Math.abs(L.intercept).toFixed(2)}   R² = ${L.r2.toFixed(4)}`,
-          data: [{ x: xmin, y: L.intercept + L.slope * xmin }, { x: xmax, y: L.intercept + L.slope * xmax }],
-          type: "line", borderColor: colors[1], borderDash: [6, 4], pointRadius: 0, borderWidth: 2 });
-      }
-      data = { datasets: ds };
-      options.scales.x.type = "linear";
-    } else {
-      const labels = spec.labels ? vals(spec.labels).map((v) => formatValue(v)) : vals(spec.ranges[0]).map((_, i) => String(i + 1));
-      const pct = 1 / (1 + Math.max(0, Number(spec.gap ?? 150)) / 100);
-      data = { labels, datasets: spec.ranges.map((rg, i) => ({ label: spec.names[i] || `Series ${i + 1}`, data: vals(rg).map((v) => (typeof v === "number" ? v : null)),
-        backgroundColor: colors[i % 4], borderColor: colors[i % 4], categoryPercentage: 1, barPercentage: pct, tension: 0.2 })) };
-      if (spec.trendline && spec.type === "line" && data.datasets[0]) {
-        const ys = data.datasets[0].data, xs = ys.map((_, i) => i + 1);
-        const ok = xs.filter((_, i) => typeof ys[i] === "number");
-        const L = ST.fitLine(ok, ok.map((x) => ys[x - 1]));
-        data.datasets.push({ label: `Trend  R² = ${L.r2.toFixed(4)}`, data: xs.map((x) => L.intercept + L.slope * x), borderColor: colors[1], borderDash: [6, 4], pointRadius: 0 });
-      }
-      options.plugins.legend.display = spec.ranges.length > 1 || !!spec.trendline;
-    }
-    return new window.Chart(canvas, { type: spec.type === "scatter" ? "scatter" : spec.type === "line" ? "line" : "bar", data, options });
-  }
+  drawChart(canvas, spec) { return drawChartOn(this.wb, canvas, spec); }
 
   analysisDialog() {
     const f = el("form", { class: "form" });
@@ -680,4 +641,47 @@ export class SheetUI {
       m.close();
     });
   }
+}
+
+// Draw a chart spec on a canvas (used on screen and, with {print:true}, for the exported workbook).
+export function drawChartOn(wb, canvas, spec, opt = {}) {
+  const vals = (rng) => {
+    const g = WB.parseRef(rng, spec.sheet), out = [];
+    for (let r = g.r1; r <= g.r2; r++) out.push(wb.value(spec.sheet, r, g.c1));
+    return out;
+  };
+  const css = getComputedStyle(document.documentElement);
+  const ink = opt.print ? "#201f1e" : css.getPropertyValue("--ink").trim() || "#201f1e";
+  const grid = opt.print ? "#e1dfdd" : css.getPropertyValue("--line").trim() || "#e1dfdd";
+  const colors = ["#4472C4", "#ED7D31", "#A5A5A5", "#FFC000"];          // Excel's default series colours
+  let data, options = { responsive: !opt.print, maintainAspectRatio: false, animation: false, devicePixelRatio: opt.print ? 2 : undefined,
+    plugins: { legend: { labels: { color: ink } }, title: { display: !!spec.title, text: spec.title, color: ink, font: { size: 15 } } },
+    scales: { x: { ticks: { color: ink }, grid: { color: grid } }, y: { ticks: { color: ink }, grid: { color: grid } } } };
+  if (spec.type === "scatter") {
+    const xs = vals(spec.labels), ys = vals(spec.ranges[0]);
+    const pts = xs.map((x, i) => ({ x, y: ys[i] })).filter((p) => typeof p.x === "number" && typeof p.y === "number");
+    const ds = [{ label: spec.names[0] || "Y", data: pts, backgroundColor: colors[0], pointRadius: 4, type: "scatter" }];
+    if (spec.trendline && pts.length > 1) {
+      const L = ST.fitLine(pts.map((p) => p.x), pts.map((p) => p.y));
+      const xmin = Math.min(...pts.map((p) => p.x)), xmax = Math.max(...pts.map((p) => p.x));
+      ds.push({ label: `y = ${L.slope.toFixed(4)}x ${L.intercept < 0 ? "−" : "+"} ${Math.abs(L.intercept).toFixed(2)}   R² = ${L.r2.toFixed(4)}`,
+        data: [{ x: xmin, y: L.intercept + L.slope * xmin }, { x: xmax, y: L.intercept + L.slope * xmax }],
+        type: "line", borderColor: colors[1], borderDash: [6, 4], pointRadius: 0, borderWidth: 2 });
+    }
+    data = { datasets: ds };
+    options.scales.x.type = "linear";
+  } else {
+    const labels = spec.labels ? vals(spec.labels).map((v) => formatValue(v)) : vals(spec.ranges[0]).map((_, i) => String(i + 1));
+    const pct = 1 / (1 + Math.max(0, Number(spec.gap ?? 150)) / 100);
+    data = { labels, datasets: spec.ranges.map((rg, i) => ({ label: spec.names[i] || `Series ${i + 1}`, data: vals(rg).map((v) => (typeof v === "number" ? v : null)),
+      backgroundColor: colors[i % 4], borderColor: colors[i % 4], categoryPercentage: 1, barPercentage: pct, tension: 0.2 })) };
+    if (spec.trendline && spec.type === "line" && data.datasets[0]) {
+      const ys = data.datasets[0].data, xs = ys.map((_, i) => i + 1);
+      const ok = xs.filter((_, i) => typeof ys[i] === "number");
+      const L = ST.fitLine(ok, ok.map((x) => ys[x - 1]));
+      data.datasets.push({ label: `Trend  R² = ${L.r2.toFixed(4)}`, data: xs.map((x) => L.intercept + L.slope * x), borderColor: colors[1], borderDash: [6, 4], pointRadius: 0 });
+    }
+    options.plugins.legend.display = spec.ranges.length > 1 || !!spec.trendline;
+  }
+  return new window.Chart(canvas, { type: spec.type === "scatter" ? "scatter" : spec.type === "line" ? "line" : "bar", data, options });
 }

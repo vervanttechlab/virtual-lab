@@ -8,6 +8,8 @@ progress, opens or closes activities, and grades written answers.
 - **Students:** open the link, sign in with the class code, student ID and PIN, then **Add to Home Screen**. The app works offline;
   your answers are sent when you are back online.
 - **Trainer board:** add `#/trainer` to the link.
+- **Turn in to Google Classroom:** each activity exports the student's answers and workbook as an Excel file and opens the Classroom assignment the trainer linked.
+- **Student guide:** `guide.html`.
 
 Content available: Day 2 (Descriptive Statistics) and Day 3 (Probability, Correlation, Regression, t-Test). More days are added as
 the course goes on.
@@ -16,4 +18,4 @@ Built as a static site (no build step): `index.html`, `js/` (ES modules), `data/
 salted hashes). The back end is a Google Apps Script web app set in `js/config.js`.
 
 Third-party: [HyperFormula](https://hyperformula.handsontable.com/) (GPL-v3, see `vendor/HYPERFORMULA-LICENSE.txt`) and
-[Chart.js](https://www.chartjs.org/) (MIT, `vendor/CHARTJS-LICENSE.md`). This project's code is released under the GPL-3.0 to match.
+[Chart.js](https://www.chartjs.org/) (MIT, `vendor/CHARTJS-LICENSE.md`) and [ExcelJS](https://github.com/exceljs/exceljs) (MIT, `vendor/EXCELJS-LICENSE.txt`, used to export answers as .xlsx). This project's code is released under the GPL-3.0 to match.

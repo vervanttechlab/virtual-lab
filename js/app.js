@@ -3,6 +3,7 @@ import { CONFIG } from "./config.js";
 import { call, trainerCall, sendOrQueue, session, trainer, demoMode, queue, onQueue, apiUrl, NetError } from "./api.js";
 import { Workbook } from "./workbook.js";
 import { SheetUI } from "./grid.js";
+import { buildSubmissionFile, downloadBlob } from "./export.js";
 import { el, esc, modal, toast, store, sha, timeAgo, icon } from "./ui.js";
 
 const C = window.DAL3Check;
@@ -37,7 +38,7 @@ async function loadConfig(force) {
   if (cached && !force && Date.now() - cached.at < 15000) return cached;
   try {
     const r = await call("config");
-    const v = { enabled: r.enabled, results: r.results || {}, at: Date.now() };
+    const v = { enabled: r.enabled, results: r.results || {}, links: r.links || {}, at: Date.now() };
     store.set(ck, v);
     return v;
   } catch (e) {
@@ -304,7 +305,9 @@ async function viewActivity(n, actId) {
     results[actId]?.server ? `Submitted: ${fmtScore(results[actId].server)}` : "Ready");
   const btnCheck = el("button", { class: "btn", type: "button" }, icon("check"), "Check");
   const btnSubmit = el("button", { class: "btn primary", type: "button" }, "Submit");
-  const bar = el("div", { class: "statusbar" }, status, el("div", { class: "grow" }), btnCheck, btnSubmit);
+  const btnTurnIn = el("button", { class: "btn", type: "button", title: "Download your answers as an Excel file and turn it in on Google Classroom" },
+    icon("download"), el("span", { class: "hide-sm" }, "Turn in to "), "Classroom");
+  const bar = el("div", { class: "statusbar" }, status, el("div", { class: "grow" }), btnTurnIn, btnCheck, btnSubmit);
 
   const seg = el("div", { class: "switch", role: "tablist" });
   const panes = { steps: left, sheet: right };
@@ -366,6 +369,41 @@ async function viewActivity(n, actId) {
     }
     ui && ui.setMarks(marks);
   }
+  // ---- turn in to Google Classroom: download the answers file, then open the assignment the trainer linked
+  btnTurnIn.addEventListener("click", async () => {
+    btnTurnIn.disabled = true;
+    const label = btnTurnIn.lastChild.textContent;
+    btnTurnIn.lastChild.textContent = "Preparing…";
+    let file;
+    try {
+      saveLocal.flush();
+      const { sub, score } = await evaluate();
+      showFeedback(score);
+      file = await buildSubmissionFile({ day, act, wb, ans, sub, score, student: session.get() || {} });
+    } catch (e) {
+      toast(e.message || String(e), "bad");
+      return;
+    } finally {
+      btnTurnIn.disabled = false;
+      btnTurnIn.lastChild.textContent = label;
+    }
+    const fresh = await loadConfig(true).catch(() => cfg);           // the trainer may have added the link just now
+    const link = ((fresh.links || cfg.links || {})[tag] || {})[actId] || "";
+    const submitted = !!(results[actId] && (results[actId].server || results[actId].pending));
+    const dl = el("button", { class: "btn primary", type: "button" }, icon("download"), "Download my answers");
+    dl.addEventListener("click", () => { downloadBlob(file.blob, file.filename); if (open_) { dl.classList.remove("primary"); open_.classList.add("primary"); } });
+    const open_ = link ? el("a", { class: "btn", href: link, target: "_blank", rel: "noopener" }, "Open the Google Classroom assignment") : null;
+    const step = (n, title, ...kids) => el("div", { class: "tstep" }, el("span", { class: "tn" }, String(n)), el("div", {}, el("b", { class: "tt" }, title), ...kids));
+    const box = el("div", { class: "turnin" },
+      step(1, "Download your answers", el("p", { class: "small muted" }, `File: ${file.filename} (Excel). It has your answers and your workbook.`), dl),
+      link ? step(2, "Open the assignment in Google Classroom", el("p", { class: "small muted" }, "Classroom opens on the assignment for this activity."), open_)
+        : step(2, "Open Google Classroom", el("p", { class: "small" }, "Your trainer has not added a Classroom link for this activity yet. Open the assignment in Google Classroom yourself, or ask your trainer.")),
+      step(3, "Attach the file and turn in", el("p", { class: "small" }, "In the assignment, tap ", el("b", {}, "Add or create"), " (or ", el("b", {}, "+ Add"),
+        "), then ", el("b", {}, "File"), ". Choose the file from your ", el("b", {}, "Downloads"), " folder, then tap ", el("b", {}, "Turn in"), ".")),
+      submitted ? "" : el("p", { class: "note small" }, "Also tap Submit here in the lab, so your trainer sees your score on the class board."));
+    modal(`Turn in Activity ${act.id}`, box);
+  });
+
   btnCheck.addEventListener("click", async () => {
     const { score } = await evaluate();
     showFeedback(score);
@@ -512,13 +550,44 @@ async function viewTrainer() {
   const toggles = el("div", { class: "switches" });
   const table = el("div", { class: "board" });
   const legend = el("div", { class: "legend" });
+  const linksBtn = el("button", { class: "btn small", type: "button", title: "Google Classroom assignment link for each activity" }, "Classroom links");
   const exportBtn = el("button", { class: "btn small", type: "button" }, icon("download"), "Export CSV");
   const settings = el("button", { class: "btn small icon", type: "button", title: "Board settings", "aria-label": "Board settings" }, icon("gear"));
-  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), exportBtn, settings), toggles, table, legend, { __cls: "page work" });
+  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), linksBtn, exportBtn, settings), toggles, table, legend, { __cls: "page work" });
   let data = null;
   settings.addEventListener("click", trainerSettings);
   daySel.addEventListener("change", () => { store.set("dal3_board_day", daySel.value); render(); });
   exportBtn.addEventListener("click", () => data && exportCsv(data, Number(daySel.value)));
+  linksBtn.addEventListener("click", async () => {
+    if (!data) return;
+    const day = await getDay(Number(daySel.value)), tag = day.tag, cur = (data.links || {})[tag] || {};
+    const f = el("form", { class: "form" });
+    f.append(el("p", { class: "hint" }, "In Google Classroom, open the assignment, copy its link from the browser address bar (it starts with " +
+      "https://classroom.google.com/), and paste it here. Students then see a button that opens that assignment directly. Leave a box empty to remove a link."));
+    const inputs = day.activities.map((a) => {
+      const i = el("input", { type: "url", name: a.id, value: cur[a.id] || "", placeholder: "https://classroom.google.com/c/…/a/…/details" });
+      f.append(el("label", {}, `${a.id}  ${a.title}`, i));
+      return i;
+    });
+    const save = el("button", { class: "btn primary", type: "submit" }, "Save links");
+    f.append(el("div", { class: "actions" }, el("button", { class: "btn", type: "button", "data-cancel": "" }, "Cancel"), save));
+    const m = modal(`Day ${day.day}: Google Classroom links`, f);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const bad = inputs.find((i) => i.value.trim() && !/^https:\/\//i.test(i.value.trim()));
+      if (bad) return toast(`Activity ${bad.name}: the link must start with https://`, "bad");
+      const changed = inputs.filter((i) => (cur[i.name] || "") !== i.value.trim());
+      if (!changed.length) return m.close();
+      save.disabled = true;
+      try {
+        for (const i of changed) await trainerCall("setLink", { day: tag, item: i.name, url: i.value.trim() });
+        const odd = changed.filter((i) => i.value.trim() && !/classroom\.google\.com/i.test(i.value)).map((i) => i.name);
+        toast(`Saved ${changed.length} link(s).` + (odd.length ? ` Note: ${odd.join(", ")} is not a classroom.google.com link.` : ""), "good");
+        m.close();
+        refresh();
+      } catch (err) { toast(err.message, "bad"); save.disabled = false; }
+    });
+  });
 
   async function refresh() {
     try {
