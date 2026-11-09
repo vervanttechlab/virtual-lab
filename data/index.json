@@ -1,0 +1,112 @@
+{
+ "generated": "2026-11-09T02:40:03.070Z",
+ "days": [
+  {
+   "day": 2,
+   "tag": "day02",
+   "title": "Descriptive Statistics in Excel",
+   "unit": "Core Unit 1 · Apply Statistical Concepts and Analysis",
+   "activities": [
+    {
+     "id": "2.0",
+     "title": "Warm-up: Compute by Hand",
+     "mode": "Individual",
+     "minutes": 20,
+     "points": 10
+    },
+    {
+     "id": "2.1",
+     "title": "Descriptive Statistics with Excel Functions",
+     "mode": "Individual",
+     "minutes": 50,
+     "points": 30
+    },
+    {
+     "id": "2.2",
+     "title": "Cross-check with the Analysis ToolPak",
+     "mode": "Individual",
+     "minutes": 25,
+     "points": 15
+    },
+    {
+     "id": "2.3",
+     "title": "Frequency Distribution and Histogram",
+     "mode": "Individual",
+     "minutes": 40,
+     "points": 20
+    },
+    {
+     "id": "2.4",
+     "title": "Flag the Outliers (Pasig)",
+     "mode": "Pair",
+     "minutes": 25,
+     "points": 10
+    },
+    {
+     "id": "2.5",
+     "title": "Insight Summary for Aling Nena",
+     "mode": "Group of 3–4",
+     "minutes": 30,
+     "points": 15
+    }
+   ]
+  },
+  {
+   "day": 3,
+   "tag": "day03",
+   "title": "Probability, Correlation, Regression and the t-Test",
+   "unit": "Core Unit 1 · Apply Statistical Concepts and Analysis",
+   "activities": [
+    {
+     "id": "3.0",
+     "title": "Warm-up: Compute by Hand",
+     "mode": "Individual",
+     "minutes": 20,
+     "points": 10
+    },
+    {
+     "id": "3.1",
+     "title": "Probability of Payment Methods",
+     "mode": "Individual",
+     "minutes": 25,
+     "points": 15
+    },
+    {
+     "id": "3.2",
+     "title": "z-Scores and the Normal Curve (rice bags)",
+     "mode": "Individual",
+     "minutes": 35,
+     "points": 20
+    },
+    {
+     "id": "3.3",
+     "title": "Correlation and Scatter Charts",
+     "mode": "Individual",
+     "minutes": 30,
+     "points": 15
+    },
+    {
+     "id": "3.4",
+     "title": "Regression Forecast",
+     "mode": "Individual",
+     "minutes": 30,
+     "points": 15
+    },
+    {
+     "id": "3.5",
+     "title": "t-Test: Real Difference or Chance?",
+     "mode": "Pair",
+     "minutes": 30,
+     "points": 15
+    },
+    {
+     "id": "3.6",
+     "title": "Recommendations for Aling Nena",
+     "mode": "Group of 3–4",
+     "minutes": 25,
+     "points": 10
+    }
+   ]
+  }
+ ]
+}
