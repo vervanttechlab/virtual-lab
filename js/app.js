@@ -4,7 +4,7 @@ import { call, trainerCall, sendOrQueue, session, trainer, demoMode, queue, onQu
 import { Workbook } from "./workbook.js";
 import { SheetUI } from "./grid.js";
 import { buildSubmissionFile, downloadBlob } from "./export.js";
-import { VIDEOS, embedUrl } from "./videos.js";
+import { VIDEOS, embedUrl, driveId } from "./videos.js";
 import { el, esc, modal, toast, store, sha, timeAgo, icon } from "./ui.js";
 
 const C = window.DAL3Check;
@@ -259,9 +259,16 @@ function videoBox(url, title, sub, chapterList) {
     el("p", { class: "vnote" }, "If the video does not play, ", el("a", { href: url, target: "_blank", rel: "noopener" }, "open it in Google Drive"), "."));
 }
 
+/** The video link for a day: the one the trainer saved on the board (Google Sheet), else the default in videos.js. */
+const videoUrl = (cfg, n) => (((cfg && cfg.links) || {})[`day${String(n).padStart(2, "0")}`] || {}).video || (VIDEOS[n] && VIDEOS[n].url) || "";
+
 async function viewLesson(n) {
   const day = await getDay(n);
-  const vid = VIDEOS[n];
+  if (demoMode()) return renderLesson(n, day, {});
+  return withConfig((cfg) => renderLesson(n, day, cfg));
+}
+function renderLesson(n, day, cfg) {
+  const vid = VIDEOS[n] ? { ...VIDEOS[n], url: videoUrl(cfg, n) } : null;
   const chapterFor = (h) => vid && vid.chapters.find((c) => h.startsWith(c.part + " ") || h === c.part);
   const secs = day.lesson.map((s, i) => {
     const body = [el("div", { class: "prose", html: s.html })];
@@ -634,16 +641,78 @@ async function viewTrainer() {
   const table = el("div", { class: "board" });
   const legend = el("div", { class: "legend" });
   const linksBtn = el("button", { class: "btn small", type: "button", title: "Google Classroom assignment link for each activity" }, "Classroom links");
+  const videoBtn = el("button", { class: "btn small", type: "button", title: "Google Drive link of this day's demo video" }, icon("play"), "Video link");
   const exportBtn = el("button", { class: "btn small", type: "button" }, icon("download"), "Export CSV");
   const settings = el("button", { class: "btn small icon", type: "button", title: "Board settings", "aria-label": "Board settings" }, icon("gear"));
   const logout = el("button", { class: "btn small", type: "button", title: "Log out of the trainer board on this browser" }, icon("logout"), "Log out");
   logout.addEventListener("click", trainerLogout);
-  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), linksBtn, exportBtn, settings, logout),
+  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), videoBtn, linksBtn, exportBtn, settings, logout),
     toggles, table, legend, { __cls: "page work" });
   let data = null;
   settings.addEventListener("click", trainerSettings);
   daySel.addEventListener("change", () => { store.set("dal3_board_day", daySel.value); render(); });
   exportBtn.addEventListener("click", () => data && exportCsv(data, Number(daySel.value)));
+  videoBtn.addEventListener("click", async () => {
+    if (!data) return;
+    const n = Number(daySel.value), day = await getDay(n), tag = day.tag, v = VIDEOS[n];
+    if (!v) return toast(`Day ${n} has no demo video places set up yet.`, "bad");
+    const saved = ((data.links || {})[tag] || {}).video || "";
+    const f = el("form", { class: "form" });
+    const input = el("input", { type: "url", name: "video", value: saved || v.url, placeholder: "https://drive.google.com/file/d/…/view?usp=sharing" });
+    const check = el("p", { class: "small" });
+    const show = () => {
+      const id = driveId(input.value.trim());
+      check.textContent = !input.value.trim() ? "Empty: the lesson will use the original video." :
+        id ? `Google Drive file found (id ${id.slice(0, 8)}…).` : "This is not a Google Drive file link. Copy it from Drive › Share › Copy link.";
+      check.className = "small " + (!input.value.trim() || id ? "muted" : "bad");
+    };
+    input.addEventListener("input", show);
+    show();
+    const preview = el("button", { class: "btn small", type: "button" }, icon("play"), "Preview");
+    const stage = el("div", { class: "vstage", hidden: true });
+    preview.addEventListener("click", () => {
+      const src = embedUrl(input.value.trim() || v.url);
+      if (!src) return toast("Paste a Google Drive file link first.", "bad");
+      stage.hidden = false;
+      stage.replaceChildren(el("iframe", { src, title: "Preview", allow: "autoplay; fullscreen", allowfullscreen: true }));
+    });
+    const places = el("table", { class: "vchapters" }, el("tbody", {},
+      el("tr", {}, el("td", { class: "mono" }, `0:00–${v.length || ""}`), el("td", {}, "Full video"), el("td", { class: "muted" }, "Top of the lesson")),
+      ...v.chapters.map((c) => {
+        const sec = day.lesson.find((x) => x.h.startsWith(c.part + " ") || x.h === c.part);
+        return el("tr", {}, el("td", { class: "mono" }, `${c.start}–${c.end}`), el("td", {}, c.title),
+          el("td", { class: sec ? "muted" : "bad" }, sec ? sec.h : `${c.part}: section not found`));
+      })));
+    f.append(el("p", { class: "hint" }, "Paste the Google Drive share link of the Day " + n + " demo video. In Drive, set it to ",
+      el("b", {}, "Anyone with the link · Viewer"), " first, or students see a Google sign-in box instead of the video."),
+      el("label", {}, "Google Drive link", input), check, el("div", { class: "btnrow" }, preview), stage,
+      el("div", { class: "label" }, "Where it appears in the lesson"), places,
+      el("p", { class: "small muted" }, "These places and times match the current demo recording. If you upload a different recording " +
+        "with other chapter times, the times above need updating too."));
+    const save = el("button", { class: "btn primary", type: "submit" }, "Save video link");
+    f.append(el("div", { class: "actions" }, el("button", { class: "btn", type: "button", "data-cancel": "" }, "Cancel"), save));
+    const m = modal(`Day ${n}: demo video`, f, { wide: true });
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      let url = input.value.trim();
+      if (url && !driveId(url)) return toast("That is not a Google Drive file link.", "bad");
+      if (url === v.url) url = "";                                         // same as the original: no override needed
+      if (url === saved) return m.close();
+      save.disabled = true;
+      save.classList.add("busy");
+      save.textContent = "Saving…";
+      try {
+        const r = await trainerCall("setLink", { day: tag, item: "video", url });
+        if (r.links) data.links = r.links;
+        toast(url ? `Day ${n} lessons now use the new video.` : `Day ${n} lessons use the original video again.`, "good");
+        m.close();
+      } catch (err) {
+        toast(err.message, "bad");
+        save.disabled = false; save.classList.remove("busy"); save.textContent = "Save video link";
+      }
+    });
+  });
+
   linksBtn.addEventListener("click", async () => {
     if (!data) return;
     const day = await getDay(Number(daySel.value)), tag = day.tag, cur = (data.links || {})[tag] || {};
