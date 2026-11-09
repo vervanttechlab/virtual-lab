@@ -94,7 +94,8 @@ async function viewLogin() {
       <label>Student ID <input name="sid" required autocapitalize="characters" autocomplete="username"></label>
       <label>PIN <input name="pin" required inputmode="numeric" type="password" autocomplete="current-password" maxlength="8"></label>`}
     <button class="btn primary wide" type="submit">Sign in</button>
-    <p class="small muted" style="margin:12px 0 0">Trainer? <a href="#/trainer">Open the trainer board</a></p>`;
+    <p class="small" style="margin:12px 0 0"><a href="guide.html">New here? How to install the app and sign in</a></p>
+    <p class="small muted" style="margin:6px 0 0">Trainer? <a href="#/trainer">Open the trainer board</a></p>`;
   shell("Sign in", null, f);
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -370,7 +371,7 @@ async function viewActivity(n, actId) {
     showFeedback(score);
     results[actId] = { ...(results[actId] || {}), checked: { auto: score.auto, autoMax: score.autoMax } };
     store.set(K.res(tag), results);
-    toast(`Auto-checked: ${round(score.auto)} of ${round(score.autoMax)} pts` + (score.manualMax ? ` (+${score.manualMax} pts graded by the trainer)` : ""));
+    toast(`Auto-checked: ${round(score.auto)} of ${round(score.autoMax)} pts` + (score.manualMax ? ` (+${score.manualMax} ${score.manualMax === 1 ? "pt" : "pts"} graded by the trainer)` : ""));
     saveDraft(true);
   });
   btnSubmit.addEventListener("click", async () => {

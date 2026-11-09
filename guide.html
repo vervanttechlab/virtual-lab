@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How to use the DAL3 Lab</title>
+  <meta name="description" content="How to install the DAL3 Virtual Lab on your phone, sign in with your Student ID and PIN, and use it on a computer.">
+  <meta name="theme-color" content="#107c41">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    .guide { max-width: 760px; margin: 0 auto; padding: 16px 16px 48px; }
+    .guide h2 { font-size: 22px; margin: 6px 0 4px; }
+    .guide .lead { color: var(--muted); margin-bottom: 14px; }
+    .guide section { background: var(--panel); border: 1px solid var(--line); border-top: 0; padding: 14px 16px 16px; }
+    .guide section:first-of-type { border-top: 1px solid var(--line); }
+    .guide h3 { display: flex; align-items: center; gap: 10px; font-size: 15px; margin-bottom: 8px; }
+    .guide h3 .n { width: 24px; height: 24px; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex: none; }
+    .guide p, .guide li { font-size: 14px; }
+    .guide ol, .guide ul { padding-left: 20px; margin: 4px 0 8px; }
+    .guide figure { margin: 10px 0 4px; }
+    .guide figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); background: #fff; }
+    .guide figure.phone img { max-width: 260px; }
+    .guide figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .guide .os { display: flex; gap: 0; border: 1px solid var(--line-strong); width: fit-content; margin: 6px 0 10px; }
+    .guide .os button { border: 0; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; padding: 0 14px; height: 32px; cursor: pointer; }
+    .guide .os button + button { border-left: 1px solid var(--line-strong); }
+    .guide .os button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+    .guide .login { border: 1px solid var(--line); border-left: 3px solid var(--accent); margin: 8px 0; }
+    .guide .login div { display: grid; grid-template-columns: 110px 1fr; border-bottom: 1px solid var(--line); }
+    .guide .login div:last-child { border-bottom: 0; }
+    .guide .login span { padding: 7px 10px; font-size: 13px; }
+    .guide .login span:first-child { color: var(--muted); font-size: 12px; }
+    .guide .login span:last-child { font-family: var(--mono); }
+    .guide .cta { margin-top: 14px; }
+    .guide .faq dt { font-weight: 600; font-size: 14px; margin-top: 10px; }
+    .guide .faq dd { margin: 2px 0 0; font-size: 14px; color: var(--ink); }
+  </style>
+</head>
+<body>
+  <header class="titlebar">
+    <a class="tb-btn brand" href="./">DAL3 LAB</a>
+    <div class="crumbs"><span class="cur">How to use the lab</span></div>
+    <a class="tb-btn" href="./">Open the lab</a>
+  </header>
+  <main class="guide">
+    <div class="pagehead">
+      <div class="kicker">Student guide</div>
+      <h2>Install, sign in, and start your activities</h2>
+      <p class="lead">The DAL3 Virtual Lab works on a phone and on a computer. Your trainer gives you three things: the <b>class code</b>,
+        your <b>Student ID</b> and your <b>PIN</b> (usually by email).</p>
+    </div>
+
+    <section>
+      <h3><span class="n">1</span>Open the link</h3>
+      <p>Open <a href="./" id="applink">the lab link</a> in <b>Chrome</b> (Android) or <b>Safari</b> (iPhone). The first time, use Wi-Fi if you can,
+        so the whole app downloads to your phone.</p>
+    </section>
+
+    <section>
+      <h3><span class="n">2</span>Install it on your phone</h3>
+      <p>Installing puts a <b>DAL3 Lab</b> icon on your home screen, like a normal app. It also lets the lab work without a signal.</p>
+      <div class="os" role="tablist">
+        <button type="button" class="on" data-os="android">Android</button>
+        <button type="button" data-os="iphone">iPhone</button>
+      </div>
+      <div data-panel="android">
+        <ol>
+          <li>Open the link in <b>Chrome</b>.</li>
+          <li>Tap the <b>menu</b> (three dots, top right).</li>
+          <li>Tap <b>Add to Home screen</b>. On some phones it says <b>Install app</b>.</li>
+          <li>Tap <b>Install</b> or <b>Add</b>.</li>
+        </ol>
+        <figure><img src="guide/img/install-android.png" alt="Android: open in Chrome, tap the three-dot menu, tap Add to Home screen, tap Install, then open DAL3 Lab from the home screen" width="1040" height="506">
+          <figcaption>Illustration. The menu on your phone may look a little different.</figcaption></figure>
+      </div>
+      <div data-panel="iphone" hidden>
+        <ol>
+          <li>Open the link in <b>Safari</b> (installing does not work from Chrome on iPhone).</li>
+          <li>Tap the <b>Share</b> button: a square with an arrow pointing up.</li>
+          <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+          <li>Tap <b>Add</b> at the top right.</li>
+        </ol>
+        <figure><img src="guide/img/install-iphone.png" alt="iPhone: open in Safari, tap Share, tap Add to Home Screen, tap Add, then open DAL3 Lab from the home screen" width="1040" height="506">
+          <figcaption>Illustration. The Share menu on your iPhone may look a little different.</figcaption></figure>
+      </div>
+      <p>From now on, open the lab from the <b>DAL3 Lab</b> icon on your home screen.</p>
+    </section>
+
+    <section>
+      <h3><span class="n">3</span>Sign in</h3>
+      <p>Type exactly what your trainer gave you, then tap <b>Sign in</b>:</p>
+      <div class="login">
+        <div><span>Class code</span><span>for example DAL3-2026</span></div>
+        <div><span>Student ID</span><span>for example S014</span></div>
+        <div><span>PIN</span><span>4 digits, keep it private</span></div>
+      </div>
+      <figure class="phone"><img src="guide/img/signin.png" alt="The sign-in screen with Class code, Student ID and PIN" width="520" height="693">
+        <figcaption>The sign-in screen.</figcaption></figure>
+      <p>You stay signed in on that phone. Tap your Student ID at the top right to sign out.</p>
+    </section>
+
+    <section>
+      <h3><span class="n">4</span>Do your activities</h3>
+      <ul>
+        <li>Choose a <b>Day</b>. Each day has a <b>Lesson</b>, a <b>Practice workbook</b>, the activities and a self-check quiz.</li>
+        <li>An activity shows <b>CLOSED</b> until your trainer opens it in class.</li>
+        <li>Inside an activity, switch between <b>Task</b> (instructions and your answers) and <b>Workbook</b> (the spreadsheet).</li>
+        <li>Select a yellow cell, type the formula in the bar at the top, and tap the check mark (or press Enter).</li>
+        <li>Tap <b>Check</b> to see which answers are correct. Wrong cells get a red border.</li>
+        <li>Tap <b>Submit</b> when you are done. Your trainer sees your work right away. You may submit again; the latest one counts.</li>
+      </ul>
+      <figure class="phone"><img src="guide/img/day.png" alt="The Day page listing activities with their status" width="520" height="1013">
+        <figcaption>The Day page: open, in-progress and closed activities.</figcaption></figure>
+      <figure class="phone"><img src="guide/img/workbook.png" alt="An activity's workbook with formulas being typed" width="520" height="1013">
+        <figcaption>The workbook: ribbon, formula bar, symbol keys and the yellow cells.</figcaption></figure>
+    </section>
+
+    <section>
+      <h3><span class="n">5</span>Using a computer</h3>
+      <p>Open the same link in <b>Chrome</b> or <b>Edge</b> on any computer and sign in the same way. No installation is needed.
+        On a computer the instructions and the workbook are side by side, and Excel shortcuts work:
+        <b>Ctrl + C</b>, <b>Ctrl + V</b>, <b>Ctrl + D</b> (fill down), <b>Ctrl + R</b> (fill right), <b>F4</b> (lock a reference) and <b>Alt + =</b> (AutoSum).</p>
+      <figure><img src="guide/img/desktop.png" alt="The lab on a computer: instructions on the left, workbook on the right" width="1040" height="585">
+        <figcaption>The lab on a computer.</figcaption></figure>
+      <p>You can start on your phone and continue on a computer: your submitted work is saved on the class server.
+        Work you have <b>not</b> submitted yet stays on the device where you typed it.</p>
+    </section>
+
+    <section class="faq">
+      <h3><span class="n">?</span>Questions</h3>
+      <dl>
+        <dt>It says "Student ID or PIN is not correct".</dt>
+        <dd>Check for typing mistakes (S001 is not the same as 5001). If it still fails, tell your trainer your Student ID.</dd>
+        <dt>It says "Wrong class code".</dt>
+        <dd>Type the class code exactly as your trainer wrote it, including the dash.</dd>
+        <dt>I have no signal.</dt>
+        <dd>Keep working. Your answers are saved on your phone and sent when you are back online. The top bar shows how many are still unsent.</dd>
+        <dt>I do not see the install option.</dt>
+        <dd>On Android, use Chrome (not the Facebook or Messenger browser): open the link, then menu, then Add to Home screen.
+          On iPhone, use Safari. You can also simply bookmark the link; the lab works in the browser too.</dd>
+      </dl>
+      <p class="cta"><a class="btn primary" href="./">Open the DAL3 Lab</a></p>
+    </section>
+  </main>
+  <script>
+    document.querySelectorAll(".os button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        document.querySelectorAll(".os button").forEach(function (x) { x.classList.toggle("on", x === b); });
+        document.querySelectorAll("[data-panel]").forEach(function (p) { p.hidden = p.dataset.panel !== b.dataset.os; });
+      });
+    });
+    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) document.querySelector('.os button[data-os="iphone"]').click();
+    document.getElementById("applink").textContent = location.href.replace(/guide\.html.*$/, "");
+  </script>
+</body>
+</html>

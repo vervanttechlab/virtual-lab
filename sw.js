@@ -1,5 +1,5 @@
 // Offline support: cache the app shell and day data; the Apps Script API is never cached.
-const VERSION = "dal3-lab-v2";
+const VERSION = "dal3-lab-v3";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css",
   "js/app.js", "js/api.js", "js/config.js", "js/ui.js", "js/workbook.js", "js/grid.js", "js/stats.js",
@@ -7,6 +7,8 @@ const SHELL = [
   "vendor/hyperformula.full.min.js", "vendor/chart.umd.js",
   "data/index.json", "data/day02.json", "data/day03.json",
   "icons/icon-192.png", "icons/icon-512.png",
+  "guide.html", "guide/img/install-android.png", "guide/img/install-iphone.png", "guide/img/signin.png",
+  "guide/img/day.png", "guide/img/workbook.png", "guide/img/desktop.png",
 ];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
