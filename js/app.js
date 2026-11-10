@@ -6,6 +6,7 @@ import { SheetUI } from "./grid.js";
 import { buildSubmissionFile, downloadBlob } from "./export.js";
 import { VIDEOS, embedUrl, driveId } from "./videos.js";
 import { el, esc, modal, toast, store, sha, timeAgo, icon } from "./ui.js";
+import { loadSql, runSql, fingerprintOf, sqlEditor, schemaPanel, insertAtCursor, resultTable, downloadCsv } from "./sqllab.js";
 
 const C = window.DAL3Check;
 const app = document.getElementById("app");
@@ -97,8 +98,11 @@ function shell(title, back, ...body) {
 }
 /** Tabs shown on every page of a day, so students can move between its parts in one tap. */
 function dayTabs(n, active) {
+  const d = cache.days[`day${String(n).padStart(2, "0")}`];
+  const hasSheets = !d || (d.sheets || []).length > 0, hasSql = !!(d && d.sql);
   const tabs = [["day", "Activities", `#/day/${n}`, "list"], ["lesson", "Lesson", `#/lesson/${n}`, "book"],
-    ["sheet", "Workbook", `#/sheet/${n}`, "grid"], ["quiz", "Quiz", `#/quiz/${n}`, "quiz"], ["files", "Files", `#/files/${n}`, "download"]];
+    hasSql ? ["sql", "SQL", `#/sql/${n}`, "db"] : null, hasSheets ? ["sheet", "Workbook", `#/sheet/${n}`, "grid"] : null,
+    ["quiz", "Quiz", `#/quiz/${n}`, "quiz"], ["files", "Files", `#/files/${n}`, "download"]].filter(Boolean);
   return el("nav", { class: "daytabs", "aria-label": `Day ${n}` }, el("span", { class: "dt-day" }, `Day ${n}`),
     ...tabs.map(([k, label, href, ic]) => el("a", { class: "dt" + (k === active ? " on" : ""), href, "aria-current": k === active ? "page" : null },
       icon(ic), el("span", {}, label))));
@@ -392,6 +396,23 @@ async function viewSheet(n) {
   onLeave(() => { save.flush(); ui.destroy(); });
 }
 
+// ------------------------------------------------------------------ SQL playground (free practice on aling_nena.db)
+async function viewSql(n) {
+  const day = await getDay(n);
+  const key = `dal3_sqlpad_${uid()}_${day.tag}`;
+  const csvBtn = el("button", { class: "btn small", type: "button" }, icon("download"), "Download CSV");
+  const ed = sqlEditor({ value: store.get(key, ""), rows: 6, onInput: debounce((t) => store.set(key, t), 400), extra: [csvBtn] });
+  csvBtn.addEventListener("click", () => {
+    const r = ed.lastResult();
+    if (!r) return toast("Run a query first.");
+    downloadCsv(r, `Day${String(n).padStart(2, "0")}_query_result.csv`);
+  });
+  shell(`Day ${n} › SQL`, `#/day/${n}`, dayTabs(n, "sql"),
+    el("p", { class: "small muted" }, "Practice any query on Aling Nena's database: the same aling_nena.db the PC students open in VS Code. Nothing you run can damage it."),
+    schemaPanel((t) => insertAtCursor(ed.textarea, t + " ")), ed);
+  loadSql().catch((e) => toast(e.message, "bad"));
+}
+
 // ------------------------------------------------------------------ activity runner
 async function viewActivity(n, actId) {
   const day = await getDay(n);
@@ -418,16 +439,57 @@ async function viewActivity(n, actId) {
     ["Double-click fill handle", "Home › Fill to End"], ["Shift + click", "Home › Select range, then select the last cell"],
     ["Alt + =", "Formulas › AutoSum"], ["Insert › Chart", "Insert › Chart"], ["Data › Data Analysis", "Data › Data Analysis"],
     ["Conditional Formatting", "Home › Highlight Cells"], ["Ctrl + Shift + %", "Home › Number Format › Percent"]];
+  const isSqlAct = act.parts.some((p) => p.type === "sql") || !!act.import;
+  const SQL_EQUIV = [["Select the query, Ctrl + E, Ctrl + E", "Run (or Ctrl + Enter on a keyboard)"], ["SQLTools tree: Aling Nena › Tables", "Tables (tap a name to insert it)"],
+    ["Results › EXPORT › Save results as CSV", "Download it as CSV"], ["Excel: Data › From Text/CSV › Load", "Import my Q11 result"], ["Ctrl + S", "Saved automatically"]];
   const actFiles = (day.files || []).filter((f) => f.group !== "pdf" || /Activities/i.test(f.name));
   const filesBox = actFiles.length ? el("details", { class: "actfiles" }, el("summary", {}, icon("download"), el("span", {}, "Files for this activity"),
     el("span", { class: "small muted" }, `${actFiles.length} file${actFiles.length > 1 ? "s" : ""}`)), el("div", { class: "flist" }, ...actFiles.map(fileRow))) : "";
   const steps = el("div", { class: "task-sec steps" }, el("div", { class: "label" }, "Instructions"), filesBox,
     el("div", { class: "prose", html: act.html }),
-    el("details", {}, el("summary", { class: "small", style: "cursor:pointer;margin-top:8px;color:var(--info)" }, "Excel keys and their lab equivalents"),
-      el("table", { class: "equiv" }, el("thead", {}, el("tr", {}, el("th", {}, "In Excel"), el("th", {}, "In the lab"))),
-        el("tbody", {}, ...EQUIV.map(([x, y]) => el("tr", {}, el("td", { class: "mono" }, x), el("td", {}, y)))))));
+    el("details", {}, el("summary", { class: "small", style: "cursor:pointer;margin-top:8px;color:var(--info)" }, isSqlAct ? "VS Code keys and their lab equivalents" : "Excel keys and their lab equivalents"),
+      el("table", { class: "equiv" }, el("thead", {}, el("tr", {}, el("th", {}, isSqlAct ? "In VS Code / Excel" : "In Excel"), el("th", {}, "In the lab"))),
+        el("tbody", {}, ...(isSqlAct ? SQL_EQUIV : EQUIV).map(([x, y]) => el("tr", {}, el("td", { class: "mono" }, x), el("td", {}, y)))))));
   const partEls = {};
   const form = el("div", { class: "parts" });
+  const hasSql = act.parts.some((p) => p.type === "sql");
+  if (hasSql) {
+    form.append(schemaPanel((t) => insertAtCursor(null, t + " ")));
+    loadSql().catch((e) => toast(e.message, "bad"));
+  }
+  if (act.import && wb) {
+    // Day 5: "export" the joined dataset from SQL and "import" it into the workbook (Excel's Data › From Text/CSV)
+    const imp = act.import;
+    const resultOf = async () => {
+      const src = (allAns[imp.from] || {})[imp.part];
+      if (!src || !src.sql || !String(src.sql).trim()) throw new Error(`Write ${imp.part} in Activity ${imp.from} first.`);
+      return runSql(src.sql);
+    };
+    const bImp = el("button", { class: "btn small primary", type: "button" }, icon("grid"), `Import my ${imp.part} result`);
+    const bCsv = el("button", { class: "btn small", type: "button" }, icon("download"), "Download it as CSV");
+    bImp.addEventListener("click", async () => {
+      try {
+        const r = await resultOf();
+        wb.removeExtraSheet(imp.sheet);
+        wb.addOutputSheet(imp.sheet, [r.columns, ...r.rows], {});
+        // formulas typed before the import pointed at a missing sheet: enter them again so they recalculate
+        for (const [k, v] of Object.entries(wb.edits)) if (typeof v === "string" && v.startsWith("=") && v.includes(imp.sheet)) {
+          const g = window.WBCore.parseRef(k);
+          if (g) wb.setCell(g.sheet, g.r1, g.c1, v);
+        }
+        touch();
+        toast(`Imported ${r.rows.length} rows and ${r.columns.length} columns into the sheet ${imp.sheet}.`, "good");
+        showPane("sheet");
+        ui && ui.switchSheet(imp.sheet);
+      } catch (e) { toast(e.message, "bad"); }
+    });
+    bCsv.addEventListener("click", async () => {
+      try { downloadCsv(await resultOf(), `${imp.sheet}.csv`); } catch (e) { toast(e.message, "bad"); }
+    });
+    form.append(el("div", { class: "part importbox" }, el("div", { class: "phead" }, el("span", { class: "pprompt" }, imp.prompt)),
+      el("p", { class: "small muted" }, `Runs your ${imp.part} from Activity ${imp.from} and loads the result into a new sheet called ${imp.sheet}, like Excel's Data › From Text/CSV.`),
+      el("div", { class: "btnrow" }, bImp, bCsv)));
+  }
   for (const p of act.parts) {
     const box = el("div", { class: "part", "data-part": p.id });
     const head = el("div", { class: "phead" }, el("span", { class: "pprompt" }, p.prompt || p.label || ""),
@@ -440,6 +502,11 @@ async function viewActivity(n, actId) {
       const go = el("button", { class: "btn small", type: "button" }, icon("grid"), "Open in workbook");
       go.addEventListener("click", () => { showPane("sheet"); ui && ui.switchSheet(p.cells[0].split("!")[0]); });
       box.append(go);
+    } else if (p.type === "sql") {
+      const cur = ans[p.id] && typeof ans[p.id] === "object" ? ans[p.id] : {};
+      const ed = sqlEditor({ value: cur.sql || "", rows: 3,
+        onInput: (t) => { ans[p.id] = { sql: t, fp: "" }; touch(); } });
+      box.append(ed);
     } else if (p.type === "num" || p.type === "list") {
       const i = el("input", { type: "text", inputmode: p.type === "num" ? "decimal" : "text", value: ans[p.id] ?? "", placeholder: p.type === "list" ? "e.g. 30, 115, 120" : "Type a number" });
       i.addEventListener("input", () => { ans[p.id] = i.value; touch(); });
@@ -516,6 +583,12 @@ async function viewActivity(n, actId) {
 
   // ---- check & submit
   async function evaluate() {
+    for (const p of act.parts) if (p.type === "sql") {             // run every query on a fresh database copy
+      const cur = ans[p.id];
+      if (!cur || typeof cur !== "object" || !String(cur.sql || "").trim()) continue;
+      const f = await fingerprintOf(cur.sql, p.ordered);
+      Object.assign(cur, { fp: f.fp, n: f.rows ?? null, c: f.cols ?? null, err: f.error || "" });
+    }
     const sub = buildSub(act, wb, ans);
     const want = new Map();
     for (const p of act.parts) {
@@ -544,6 +617,13 @@ async function viewActivity(n, actId) {
         fb.textContent = `${right} of ${p.cells.length} cells correct.` + (noF ? ` ${noF} cell(s) have a typed number: use a formula (start with =).` : "") +
           (empty ? ` ${empty} still empty.` : "") + (right < p.cells.length ? " Wrong cells are red on the sheet." : " Great work!");
         for (const [ref, v] of Object.entries(d)) if (v !== -2) marks[ref] = v === 1 ? "ok" : "bad";
+      } else if (p.type === "sql") {
+        const a = ans[p.id] || {}, x = p.expect || {};
+        fb.textContent = r.frac === 1 ? `Correct: ${a.n} row${a.n === 1 ? "" : "s"}.` : !String(a.sql || "").trim() ? "Write your query, then tap Check." :
+          a.err ? "Your query has an error: " + a.err :
+          a.n === x.rows && a.c === x.cols ? `Almost: the size is right (${a.c} columns, ${a.n} rows) but some values are different.` +
+            (p.ordered ? " Check the ORDER BY too: the order of the rows matters here." : " Check your conditions and columns.") :
+          `Not correct yet. The answer has ${x.cols} column${x.cols === 1 ? "" : "s"} and ${x.rows} row${x.rows === 1 ? "" : "s"}; yours has ${a.c} and ${a.n}.`;
       } else {
         fb.textContent = r.frac === 1 ? "Correct." : p.type === "spec" ? "Not found yet. Check the range and the settings." : "Not correct yet. Try again.";
       }
@@ -1094,7 +1174,9 @@ async function openDetail(st, day, item, s, l) {
       } else if (p.type === "textcells") {
         row.append(el("pre", { class: "answer" }, (payload.sub.answers || {}).insights || "(empty)"));
       } else if (p.type !== "spec") {
-        row.append(el("pre", { class: "answer" }, Array.isArray(a) ? a.join(", ") : (a ?? "(no answer)")));
+        row.append(el("pre", { class: "answer" + (p.type === "sql" ? " mono" : "") }, Array.isArray(a) ? a.join(", ") :
+          a && typeof a === "object" ? (String(a.sql || "").trim() || "(no query)") + (a.err ? `\n-- error: ${a.err}` : a.n != null ? `\n-- ${a.n} row(s)` : "") :
+          (a ?? "(no answer)")));
       } else row.append(el("p", { class: "small" }, r.frac === 1 ? "Done." : "Not found."));
       kids.push(row);
     }
@@ -1174,6 +1256,7 @@ async function route_() {
     if (h[0] === "day") return await viewDay(Number(h[1]));
     if (h[0] === "lesson") return await viewLesson(Number(h[1]), h[2] === undefined ? undefined : Number(h[2]));
     if (h[0] === "sheet") return await viewSheet(Number(h[1]));
+    if (h[0] === "sql") return await viewSql(Number(h[1]));
     if (h[0] === "act") return await viewActivity(Number(h[1]), h[2]);
     if (h[0] === "quiz") return await viewQuiz(Number(h[1]));
     if (h[0] === "files") return await viewFiles(Number(h[1]));

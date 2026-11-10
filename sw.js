@@ -1,11 +1,12 @@
 // Offline support: cache the app shell and day data; the Apps Script API is never cached.
-const VERSION = "dal3-lab-v21";
+const VERSION = "dal3-lab-v23";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css",
   "js/app.js", "js/api.js", "js/config.js", "js/ui.js", "js/workbook.js", "js/grid.js", "js/stats.js",
-  "js/wbcore.js", "js/check.js", "js/hf-extras.js", "js/export.js", "js/videos.js", "vendor/exceljs.min.js",
+  "js/wbcore.js", "js/check.js", "js/hf-extras.js", "js/export.js", "js/videos.js", "js/sqllab.js", "vendor/exceljs.min.js",
+  "vendor/sql-wasm.js", "vendor/sql-wasm.wasm", "data/aling_nena.db",
   "vendor/hyperformula.full.min.js", "vendor/chart.umd.js",
-  "data/index.json", "data/day02.json", "data/day03.json",
+  "data/index.json", "data/day02.json", "data/day03.json", "data/day04.json", "data/day05.json",
   "icons/icon-192.png", "icons/icon-512.png",
   "guide.html", "guide/img/install-android.png", "guide/img/install-iphone.png", "guide/img/signin.png",
   "guide/img/day.png", "guide/img/workbook.png", "guide/img/desktop.png",

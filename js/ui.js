@@ -17,6 +17,7 @@ export function el(tag, attrs = {}, ...kids) {
 }
 // Line icons, 16 x 16, drawn with currentColor (no emoji anywhere in the UI).
 const P = {
+  db: '<ellipse cx="8" cy="4" rx="5" ry="1.8"/><path d="M3 4v8c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V4M3 8c0 1 2.2 1.8 5 1.8s5-.8 5-1.8"/>',
   back: '<path d="M10 3 5 8l5 5"/>',
   close: '<path d="m4 4 8 8M12 4l-8 8"/>',
   check: '<path d="m3 8.5 3 3 7-7"/>',

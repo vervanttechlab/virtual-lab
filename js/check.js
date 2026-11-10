@@ -47,6 +47,19 @@
     return xs.map((x) => normNum(x, { dp: 2 })).join(",");
   }
   function normMulti(arr) { return (arr || []).map(String).sort().join("|"); }
+  /** SQL result -> fingerprint "rowsxcols:hash". Column names are ignored; values use normCell (7 significant
+      digits, text trimmed + lower-case); row order only counts when the question asks for an order. */
+  function fnv32(s, h) {
+    h = h >>> 0;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return ("00000000" + h.toString(16)).slice(-8);
+  }
+  function sqlFingerprint(ncols, rows, ordered) {
+    const lines = (rows || []).map((r) => r.map(normCell).join("\u001f"));
+    if (!ordered) lines.sort();
+    const s = ncols + "\u001e" + lines.join("\u001e");
+    return lines.length + "x" + ncols + ":" + fnv32(s, 2166136261) + fnv32(s, 0x9747b28c);
+  }
   function normFormula(s) { return String(s == null ? "" : s).toUpperCase().replace(/[\s$]/g, "").replace(/;/g, ",").replace(/[“”]/g, '"'); }
 
   /** Normalised answer for a part (the thing that is hashed / compared). */
@@ -57,6 +70,7 @@
       case "choice": return ans == null ? "" : String(ans);
       case "multi": return normMulti(ans);
       case "formula": return normFormula(ans);
+      case "sql": return ans && typeof ans === "object" ? String(ans.fp || "") : "";
       default: return normText(ans);
     }
   }
@@ -168,7 +182,7 @@
     return { score, max: quiz.items.length, items: res };
   }
 
-  const api = { normText, normCell, parseNum, normNum, normList, normMulti, normFormula, normAnswer, normKey,
+  const api = { normText, normCell, parseNum, normNum, normList, normMulti, normFormula, normAnswer, normKey, sqlFingerprint,
     rect, within, sameRange, specCheck, scoreActivity, scoreQuiz };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.DAL3Check = api;

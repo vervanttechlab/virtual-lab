@@ -50,6 +50,7 @@ function answerText(p, ans, wb, sub) {
     case "cells": return `${p.cells.length} cells (see the workbook sheets)`;
     case "textcells": return p.cells.map((ref) => `${ref}: ${sub.cells[ref]?.v ?? ""}`).join("\n");
     case "spec": return "";
+    case "sql": return a && typeof a === "object" ? String(a.sql || "") : "";
     default: return a == null ? "" : String(a);
   }
 }

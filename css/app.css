@@ -605,3 +605,37 @@ input[type=text], input[type=number], input[type=password], input[type=url], inp
 .seg3 button + button { border-left: 1px solid var(--line-strong); }
 .seg3 button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .seg3 .aa1 { font-size: 13px; } .seg3 .aa2 { font-size: 15.5px; } .seg3 .aa3 { font-size: 18px; }
+
+/* ---------------------------------------------------------------- SQL lab (Days 4+) */
+.schema { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); margin: 6px 0 10px; }
+.schema > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; font-weight: 600; }
+.schema > summary .small { font-weight: 400; margin-left: auto; }
+.stable { padding: 6px 10px 8px; border-top: 1px solid var(--line); }
+.scols { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.sname { font: 12px/1.2 Consolas, "Cascadia Mono", monospace; padding: 4px 7px; min-height: 28px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.sname.t { font-weight: 700; color: var(--accent); }
+.sname .kb { font: 600 10px/1 system-ui, sans-serif; color: var(--accent-ink); background: var(--accent); border-radius: 3px; padding: 2px 4px; }
+.sname .kb.fk { background: var(--info); color: #fff; }
+.sqled { margin-top: 6px; }
+.sqlbox { width: 100%; box-sizing: border-box; font: 14px/1.45 Consolas, "Cascadia Mono", monospace; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--input); color: var(--ink); resize: vertical; tab-size: 2; }
+.sqlbox:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.sqlkeys { display: flex; gap: 4px; overflow-x: auto; padding: 5px 0; scrollbar-width: thin; }
+.sqlkeys button { flex: none; font: 600 12px/1 Consolas, "Cascadia Mono", monospace; padding: 0 9px; min-height: 32px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); color: var(--ink); cursor: pointer; }
+.sqlkeys button:active { background: var(--accent-soft); }
+.sqlout { margin-top: 8px; }
+.sqlerr { color: var(--bad); background: var(--bad-bg); border-radius: 5px; padding: 7px 10px; font-size: 13px; margin: 0; }
+.sqlwrap { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.sqlscroll { max-height: 320px; overflow: auto; }
+.sqlres { border-collapse: collapse; font: 12.5px/1.35 system-ui, sans-serif; min-width: 100%; }
+.sqlres th { position: sticky; top: 0; background: var(--head); color: var(--ink); text-align: left; font-weight: 600; padding: 5px 8px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+.sqlres td { padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; color: var(--ink); }
+.sqlres td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.sqlres td.null { color: var(--faint); font-style: italic; }
+.sqlcount { font-size: 12px; color: var(--muted); padding: 4px 8px; background: var(--panel-2); border-top: 1px solid var(--line); text-align: right; }
+.importbox { background: var(--accent-soft); border-radius: 6px; padding: 10px 12px !important; margin: 0 0 8px !important; border-left: 3px solid var(--accent) !important; }
+pre.answer.mono { font-family: Consolas, "Cascadia Mono", monospace; }
+
+/* The work page fills exactly the space between the title bar and the status bar, whatever the height of the heading
+   (titles wrap on phones and grow with the Larger text size), so the sheet tabs are never hidden under the status bar. */
+.page.work { display: flex; flex-direction: column; height: calc(100vh - 40px - 41px); height: calc(100dvh - 40px - 41px); }
+.page.work > .panes { flex: 1 1 auto; min-height: 0; height: auto; }
