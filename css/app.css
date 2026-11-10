@@ -489,3 +489,119 @@ a.row:active { background: var(--accent-soft); }
 .tdone { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 4px; background: var(--good-bg); border-left: 3px solid var(--good); font-size: 13px; }
 .tdone .ic { color: var(--good); margin-top: 2px; }
 .nextbar { display: grid; gap: 8px; padding: 10px 12px; background: var(--accent-soft); border-left: 3px solid var(--accent); font-size: 13px; }
+
+/* =====================================================================================================================
+   READABILITY LAYER (students): larger type, comfortable line length and spacing, clearer fonts, bigger tap targets.
+   Text size (Normal / Large / Larger) is a per-device setting: --zoom on <html>, applied to the page and dialogs.
+   ===================================================================================================================== */
+:root {
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "SF Pro Text", Roboto, "Noto Sans", Arial, sans-serif;
+  --ui-display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, "SF Pro Display", Roboto, "Noto Sans", Arial, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", ui-monospace, "SF Mono", "Roboto Mono", Consolas, monospace;
+  --read: 16px;                        /* body reading size */
+  --zoom: 1;
+}
+@media (pointer: coarse) { :root { --tap: 44px; } }
+body { font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+/* Text size: scale the reading content only. Bars pinned to the screen (title bar, day tabs, status bar) keep their size,
+   so nothing slides or overflows. */
+.page.narrow > *:not(.daytabs), .workhead, .switch, .pane-task, .pane-sheet > .sheethost, .modal { zoom: var(--zoom); }
+.lside { top: calc(98px / var(--zoom)); max-height: calc((100vh - 110px) / var(--zoom)); }
+.lnav > :first-child { flex: none; }
+.lnav .btn.primary { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+@media (max-width: 600px) { :root[data-size] .lnav .btn:not(.primary) span { display: none; } }
+h1, h2, h3, .pagehead h2, .lpart-head h2 { font-family: var(--ui-display); letter-spacing: -.01em; }
+
+/* section labels: sentence case, readable size (was tiny all-caps) */
+.label { font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--ink); padding: 18px 0 8px; }
+.pagehead .kicker, .lpart-head .kicker { font-size: 12.5px; letter-spacing: .06em; }
+.pagehead h2 { font-size: 24px; line-height: 1.25; }
+.pagehead .meta { font-size: 14px; line-height: 1.5; margin-top: 4px; }
+
+/* buttons, inputs: easier to read and tap; 16px inputs stop iPhones zooming in */
+.btn { font-size: 14px; }
+.btn.small { font-size: 13px; }
+input[type=text], input[type=number], input[type=password], input[type=url], input[type=email], input:not([type]), select, textarea { font-size: 15px; }
+@media (pointer: coarse), (max-width: 600px) {
+  input[type=text], input[type=number], input[type=password], input[type=url], input[type=email], input:not([type]), select, textarea, .fx { font-size: 16px !important; }
+}
+.form label { font-size: 13.5px; }
+.tag { font-size: 12px; line-height: 20px; padding: 0 7px; letter-spacing: .02em; }
+
+/* lists (home, day) */
+.row { padding: 13px 14px; gap: 14px; }
+.row .title { font-size: 16px; line-height: 1.35; }
+.row .sub { font-size: 13.5px; }
+.row .num { font-size: 15px; }
+.status { font-size: 13.5px; }
+.listhead { font-size: 12px; }
+.feedback { font-size: 13.5px; }
+
+/* lesson reading */
+.prose { font-size: var(--read); line-height: 1.68; color: var(--ink); }
+.prose p { margin: 0 0 14px; }
+.prose ul, .prose ol { padding-left: 24px; margin: 6px 0 16px; }
+.prose li { margin: 6px 0; }
+.prose li > ul, .prose li > ol { margin: 4px 0 6px; }
+.prose h3, .prose h4 { font-family: var(--ui-display); font-size: 18px; margin: 24px 0 8px; line-height: 1.3; }
+.prose h4 { font-size: 16.5px; }
+.prose strong, .prose b { font-weight: 650; }
+.prose code { font-size: .88em; padding: 1px 5px; border-radius: 3px; }
+.prose table { font-size: 14.5px; line-height: 1.5; margin: 12px 0 18px; }
+.prose th, .prose td { padding: 8px 10px; }
+.prose blockquote { padding: 10px 14px; margin: 14px 0; }
+.lpart .prose { max-width: 72ch; }
+.lpart-head h2 { font-size: 23px; line-height: 1.3; }
+.lpart { padding: 20px 24px 0; }
+.lnav { margin: 20px -24px 0; padding: 14px 24px; }
+.toc a { font-size: 14px; padding: 9px 12px; line-height: 1.4; }
+.tocbox > summary { font-size: 15px; }
+.vtitle { font-size: 15px; } .vsub { font-size: 13.5px; } .vlabel { font-size: 12px; }
+
+/* activity task pane */
+.task-sec .label { font-size: 15px; }
+.steps .prose { font-size: 15.5px; line-height: 1.62; }
+.part { padding: 14px 0 16px 12px; }
+.part .pprompt { font-size: 15.5px; line-height: 1.45; font-weight: 600; }
+.part .ppts { font-size: 12px; font-family: var(--ui); font-weight: 600; text-transform: none; }
+.pfb { font-size: 14px; }
+.choice { font-size: 15.5px; min-height: var(--tap); padding: 6px 12px; line-height: 1.35; }
+.choice input { width: 18px; height: 18px; }
+.workhead h2 { font-size: 17px; } .workhead .meta { font-size: 13.5px; }
+.statusbar { font-size: 13.5px; }
+.equiv { font-size: 13.5px; }
+
+/* quiz */
+.quiz .qitem legend { font-size: 15.5px; line-height: 1.45; }
+.quiz .qitem { padding: 14px 14px 16px; }
+.quiz .choice { margin: 2px 0; }
+
+/* dialogs, toasts, files */
+.modal-head h3 { font-size: 16px; }
+.modal-body { font-size: 15px; line-height: 1.55; }
+.tstep .tt { font-size: 15.5px; } .tstep p { font-size: 14px; }
+#toast { font-size: 14.5px; padding: 10px 14px; }
+.fname { font-size: 15px; } .fsub { font-size: 13px; }
+
+/* phones: a touch larger for reading */
+@media (max-width: 600px) {
+  body { font-size: 15.5px; }
+  :root { --read: 17px; }
+  .pagehead h2 { font-size: 22px; }
+  .lpart { padding: 16px 16px 0; }
+  .lnav { margin: 18px -16px 0; padding: 12px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .lpart-head h2 { font-size: 21px; }
+  .row .title { font-size: 16.5px; }
+}
+
+/* the trainer board stays compact (many students on one screen) */
+.boardtable { font-size: 12.5px; }
+
+/* text size setting */
+:root[data-size="large"] { --zoom: 1.12; }
+:root[data-size="larger"] { --zoom: 1.25; }
+.seg3 { display: flex; border: 1px solid var(--line-strong); width: fit-content; margin: 6px 0 14px; }
+.seg3 button { border: 0; background: var(--panel); color: var(--ink); font: inherit; font-size: 14px; padding: 0 14px; min-height: var(--tap); cursor: pointer; }
+.seg3 button + button { border-left: 1px solid var(--line-strong); }
+.seg3 button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.seg3 .aa1 { font-size: 13px; } .seg3 .aa2 { font-size: 15.5px; } .seg3 .aa3 { font-size: 18px; }

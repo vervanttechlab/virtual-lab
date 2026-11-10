@@ -104,10 +104,37 @@ function dayTabs(n, active) {
       icon(ic), el("span", {}, label))));
 }
 
+// ------------------------------------------------------------------ display settings (per device): text size + theme
+const display = () => ({ size: "normal", theme: "auto", ...store.get("dal3_display", {}) });
+function applyDisplay() {
+  const d = display(), root = document.documentElement;
+  if (d.size === "normal") delete root.dataset.size; else root.dataset.size = d.size;
+  if (d.theme === "auto") delete root.dataset.theme; else root.dataset.theme = d.theme;
+}
+applyDisplay();
+function segmented(options, current, onPick) {
+  const g = el("div", { class: "seg3", role: "radiogroup" });
+  for (const [val, label, cls] of options) {
+    const b = el("button", { class: (val === current ? "on " : "") + (cls || ""), type: "button", role: "radio", "aria-checked": String(val === current) }, label);
+    b.addEventListener("click", () => {
+      g.querySelectorAll("button").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-checked", String(x === b)); });
+      onPick(val);
+    });
+    g.append(b);
+  }
+  return g;
+}
+
 function accountMenu() {
   const s = session.get();
+  const set = (k, v) => { store.set("dal3_display", { ...display(), [k]: v }); applyDisplay(); };
   const box = el("div", { class: "form" },
     el("p", {}, el("b", {}, s.name || s.id), el("span", { class: "muted" }, `  ${s.id}${s.section ? " · " + s.section : ""}`)),
+    el("div", { class: "label", style: "padding-top:6px" }, "Display"),
+    el("div", { class: "small muted" }, "Text size"),
+    segmented([["normal", "Aa Normal", "aa1"], ["large", "Aa Large", "aa2"], ["larger", "Aa Larger", "aa3"]], display().size, (v) => set("size", v)),
+    el("div", { class: "small muted" }, "Theme"),
+    segmented([["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]], display().theme, (v) => set("theme", v)),
     el("div", { class: "actions" },
     el("button", { class: "btn wide danger", type: "button", onclick: () => {
       if (queue.list().length && !confirm("Some work is still waiting to be sent. Sign out anyway? It will be sent after you sign in again on this phone.")) return;
@@ -404,7 +431,7 @@ async function viewActivity(n, actId) {
   for (const p of act.parts) {
     const box = el("div", { class: "part", "data-part": p.id });
     const head = el("div", { class: "phead" }, el("span", { class: "pprompt" }, p.prompt || p.label || ""),
-      el("span", { class: "ppts" }, `${p.points} PT${p.points === 1 ? "" : "S"}${p.manual ? " · TRAINER" : ""}`));
+      el("span", { class: "ppts" }, `${p.points} ${p.points === 1 ? "pt" : "pts"}${p.manual ? " · graded by trainer" : ""}`));
     const fb = el("div", { class: "pfb" });
     box.append(head);
     if (p.type === "cells") {
