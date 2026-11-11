@@ -32,4 +32,6 @@ export function driveId(url) {
   const m = String(url || "").match(/\/d\/([\w-]{20,})/) || String(url || "").match(/[?&]id=([\w-]{20,})/);
   return m ? m[1] : /^[\w-]{20,}$/.test(url || "") ? url : null;
 }
-export const embedUrl = (url) => (driveId(url) ? `https://drive.google.com/file/d/${driveId(url)}/preview` : null);
+/** The Drive player link. `start` (seconds): the video begins there (Drive's /preview player honours ?t=). */
+export const embedUrl = (url, start) =>
+  (driveId(url) ? `https://drive.google.com/file/d/${driveId(url)}/preview` + (start > 0 ? `?t=${Math.round(start)}` : "") : null);

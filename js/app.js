@@ -517,20 +517,27 @@ const fmtScore = (r) => {
 const round = (x) => Math.round(Number(x) * 10) / 10;
 
 /** A video box that loads the Google Drive player only when tapped (saves mobile data); one player at a time. */
-function videoBox(url, title, sub, chapterList) {
-  const src = embedUrl(url);
+function videoBox(url, title, sub, chapterList, start = 0) {
   const stage = el("div", { class: "vstage" });
   const play = el("button", { class: "vplay", type: "button", "aria-label": `Play: ${title}` },
-    el("span", { class: "vtri" }), el("span", {}, "Play video"));
+    el("span", { class: "vtri" }), el("span", {}, start ? `Play from ${fmtSec(start)}` : "Play video"));
   stage.append(play);
-  play.addEventListener("click", () => {
+  const open = (at) => {
     if (!navigator.onLine) return toast("You are offline. Connect to the internet to watch the video.", "bad");
-    document.querySelectorAll(".vstage iframe").forEach((f) => {                 // stop any other player
+    document.querySelectorAll(".vstage iframe").forEach((f) => {                 // stop any other player (or this one, to jump)
       const s = f.parentElement; f.remove(); s.classList.remove("on"); s.querySelector(".vplay").hidden = false;
     });
     play.hidden = true;
     stage.classList.add("on");
-    stage.append(el("iframe", { src, title, allow: "autoplay; fullscreen", allowfullscreen: true, loading: "lazy", referrerpolicy: "no-referrer" }));
+    // Drive's player begins at ?t=<seconds>, so the video opens right at the chapter
+    stage.append(el("iframe", { src: embedUrl(url, at), title, allow: "autoplay; fullscreen", allowfullscreen: true, loading: "lazy", referrerpolicy: "no-referrer" }));
+  };
+  play.addEventListener("click", () => open(start));
+  // chapter rows (Demo video page): tap one to play the video from that chapter
+  if (chapterList) chapterList.querySelectorAll("tr[data-start]").forEach((tr) => {
+    const go = () => { open(Number(tr.dataset.start)); stage.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
+    tr.addEventListener("click", go);
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
   });
   return el("div", { class: "vbox" },
     el("div", { class: "vhead" }, el("div", { class: "vlabel" }, "Watch it in Excel"), el("div", { class: "vtitle" }, title), sub ? el("div", { class: "vsub" }, sub) : ""),
@@ -552,14 +559,15 @@ function renderLesson(n, day, cfg, k) {
   // the parts of the lesson: the demo video first (if any), then every section of the handout
   const items = [];
   if (vid) items.push({ title: "Demo video", video: true, short: "Demo video", body: () =>
-    videoBox(vid.url, `Day ${n} demonstration: ${day.title}`, "The whole demonstration. The lesson parts that have a VIDEO tag also play their own chapter.",
+    videoBox(vid.url, `Day ${n} demonstration: ${day.title}`, "The whole demonstration. Tap a chapter below to jump to it. The lesson parts that have a VIDEO tag also play their own chapter.",
       el("table", { class: "vchapters" }, el("tbody", {}, ...vid.chapters.slice().sort((x, y) => toSec(x.start) - toSec(y.start)).map((c) =>
-        el("tr", {}, el("td", { class: "mono" }, `${c.start}${c.end ? "–" + c.end : ""}`), el("td", {}, c.title), el("td", { class: "muted" }, c.part)))))) });
+        el("tr", { "data-start": toSec(c.start), tabindex: 0, role: "button", title: `Play from ${c.start}` },
+          el("td", { class: "mono" }, el("span", { class: "vtri-sm" }), `${c.start}${c.end ? "–" + c.end : ""}`), el("td", {}, c.title), el("td", { class: "muted" }, c.part)))))) });
   for (const sec of day.lesson) {
     const ch = chapterFor(sec.h);
     items.push({ title: sec.h, video: !!ch, short: sec.h.replace(/^Part (\d+) — /, "$1 · "), body: () => [el("div", { class: "prose", html: sec.html }),
-      ch ? videoBox(vid.url, ch.title, `This part of the demo starts at ${ch.start}` + (ch.end ? ` and ends at ${ch.end}` : "") +
-        `. Press play, then drag the slider to ${ch.start}.`) : ""] });
+      ch ? videoBox(vid.url, ch.title, `This part of the demo plays from ${ch.start}` + (ch.end ? ` and ends at ${ch.end}: stop the video there, or keep watching the next part` : "") +
+        ".", null, toSec(ch.start)) : ""] });
   }
   const tag = day.tag, rk = `dal3_read_${uid()}_${tag}`, lk = `dal3_lastpart_${uid()}_${tag}`;
   const read = new Set(store.get(rk, []));
@@ -593,6 +601,7 @@ function renderLesson(n, day, cfg, k) {
     el("div", { class: "lreader" }, el("aside", { class: "lside" }, contents), article));
 }
 const toSec = (t) => String(t).split(":").reduce((a, x) => a * 60 + Number(x), 0);
+const fmtSec = (n) => `${Math.floor(n / 60)}:${String(Math.round(n % 60)).padStart(2, "0")}`;
 
 const kb = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB");
 /** One downloadable file: PDFs can also be opened in the browser. */

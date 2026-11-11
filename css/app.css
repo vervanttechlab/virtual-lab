@@ -399,6 +399,9 @@ a.row:active { background: var(--accent-soft); }
 .vchapters { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--panel); }
 .vchapters td { border-top: 1px solid var(--line); padding: 5px 12px; }
 .vchapters td:first-child { white-space: nowrap; width: 1%; }
+.vchapters tr[data-start] { cursor: pointer; }
+.vchapters tr[data-start]:hover, .vchapters tr[data-start]:focus-visible { background: rgba(127, 127, 127, .14); outline: none; }
+.vtri-sm { display: inline-block; border-left: 7px solid var(--accent); border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin-right: 6px; }
 .vtag { margin-left: auto; color: var(--accent); border-color: var(--accent); }
 
 /* ------------------------------------------------------------------ navigation: back label, breadcrumbs, day tabs */
