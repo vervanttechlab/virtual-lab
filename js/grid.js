@@ -589,6 +589,7 @@ export class SheetUI {
       e.preventDefault();
       const tool = f.tool.value, labels = f.labels.checked;
       const outName = f.out.value.trim() || f.out.placeholder;
+      const src = this.sheet;                 // the data's sheet: addOutputSheet() below switches to the new output sheet
       try {
         const a = this.wb.columns(f.input.value, labels, this.sheet);
         let rows, colW = { A: 30, B: 18, C: 18, D: 18, E: 18, F: 18, G: 18, H: 18 };
@@ -601,9 +602,9 @@ export class SheetUI {
           if (tool === "ttest") rows = ST.tTestUnequal(a.cols[0].values, b.cols[0].values, a.cols[0].label, b.cols[0].label);
           else rows = ST.regression(a.cols[0].values, b.cols[0].values, a.cols[0].label, labels ? b.cols[0].label : "X Variable 1");
         }
-        const qualify = (ref) => (ref.includes("!") ? ref : `${this.sheet}!${ref}`);
+        const qualify = (ref) => (ref.includes("!") ? ref : `${src}!${ref}`);
         const name = this.wb.addOutputSheet(outName, rows, colW);
-        this.wb.addSpec("analyses", { tool, sheet: this.sheet, input: qualify(f.input.value.trim()),
+        this.wb.addSpec("analyses", { tool, sheet: src, input: qualify(f.input.value.trim()),
           input2: tool === "descr" ? null : qualify(f.input2.value.trim()), labels, out: name });
         m.close();
         toast(`Done: results are on the new sheet "${name}". Remember: ToolPak output does not update when the data changes.`);

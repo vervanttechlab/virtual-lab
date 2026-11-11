@@ -21,6 +21,31 @@ export class Workbook {
     this.edits = { ...(saved.edits || {}) };
     this.undoStack = [];
     this.listeners = new Set();
+    this._repairAnalyses();
+  }
+
+  /** Until Nov 2026, a Data Analysis run recorded the OUTPUT sheet as its data sheet (so the ToolPak check said "Not
+   *  found yet"). Find the real data sheet: the one whose range gives the same Mean as the output sheet. */
+  _repairAnalyses() {
+    for (const a of this.specs.analyses || []) {
+      if (!a || a.sheet !== a.out || !this.extra[a.out]) continue;
+      const body = (r) => String(r || "").slice(String(r || "").lastIndexOf("!") + 1);
+      let outMean = null;
+      for (let r = 0; r < 12 && outMean === null; r++) if (String(this.value(a.out, r, 0)).trim() === "Mean") outMean = Number(this.value(a.out, r, 1));
+      if (!Number.isFinite(outMean)) continue;
+      for (const s of this.day.sheets) {
+        try {
+          const vals = this.columns(body(a.input), a.labels, s.name).cols[0].values;
+          if (!vals.length) continue;
+          const mean = vals.reduce((x, y) => x + y, 0) / vals.length;
+          if (Math.abs(mean - outMean) > 1e-6 * Math.max(1, Math.abs(outMean))) continue;
+          a.sheet = s.name;
+          a.input = `${s.name}!${body(a.input)}`;
+          if (a.input2) a.input2 = `${s.name}!${body(a.input2)}`;
+          break;
+        } catch (e) { /* range not on this sheet */ }
+      }
+    }
   }
 
   // ------------------------------------------------------------ basics

@@ -719,3 +719,7 @@ pre.answer.mono { font-family: Consolas, "Cascadia Mono", monospace; }
 .qrow .qtags { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .qrow .when { text-align: right; }
 @media (max-width: 600px) { .qrow { grid-template-columns: 1fr auto; } .qrow .qtags { grid-column: 1 / -1; justify-content: flex-start; } }
+.partnerlist { gap: 0; } .partnerlist .choice { border-top: 0; }
+/* code examples in lessons / instructions: wrap long SQL lines on narrow screens instead of cutting them off */
+.prose pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel-2); border: 1px solid var(--line); padding: 8px 10px; border-radius: 4px; }
+.prose pre code { display: block; white-space: inherit; border: 0; background: none; padding: 0; word-break: normal; overflow-wrap: anywhere; }
