@@ -59,7 +59,7 @@ async function loadConfig(force) {
   if (cached && !force && Date.now() - cached.at < 15000) return cached;
   try {
     const r = await call("config");
-    const v = { enabled: r.enabled, unlocked: r.unlocked || {}, results: r.results || {}, links: r.links || {}, at: Date.now() };
+    const v = { enabled: r.enabled, unlocked: r.unlocked || {}, results: r.results || {}, links: r.links || {}, redo: r.redo || {}, at: Date.now() };
     store.set(ck, v);
     return v;
   } catch (e) {
@@ -70,6 +70,10 @@ async function loadConfig(force) {
   }
 }
 const isOpen = (cfg, tag, item) => !cfg.enabled || !!(cfg.enabled[tag] && cfg.enabled[tag][item]);
+/** Activities the trainer returned to this student for a redo: [{tag, act, at, note}], oldest first. */
+const redoList = (cfg) => Object.entries((cfg && cfg.redo) || {}).flatMap(([tag, acts]) => Object.entries(acts).map(([act, r]) => ({ tag, act, ...r })))
+  .sort((a, b) => new Date(a.at) - new Date(b.at));
+const redoOf = (cfg, tag, act) => (((cfg && cfg.redo) || {})[tag] || {})[act] || null;
 /** Grades / feedback the student has not looked at yet (compared with what My progress last showed). */
 const seenKey = () => `dal3_seengrades_${uid()}`;
 const gradeSig = (tag, act, r) => `${tag}|${act}|${r.attempts}|${r.manual}|${r.feedback || ""}`;
@@ -303,7 +307,7 @@ async function withConfig(render) {
     return;
   }
   loadConfig(true).then(async (fresh) => {
-    const sig = (c) => JSON.stringify([c.enabled, c.results, c.links]);
+    const sig = (c) => JSON.stringify([c.enabled, c.results, c.links, c.redo]);
     if (location.hash !== here || sig(fresh) === sig(cached)) return;
     const y = window.scrollY;
     await render(fresh);
@@ -334,6 +338,14 @@ async function viewHome() {
         const ng = demoMode() ? [] : newGrades(cfg);
         return ng.length ? el("a", { class: "newgrades", href: "#/progress" }, el("span", { class: "dot" }),
           el("span", {}, el("b", {}, `${ng.length} new ${ng.length === 1 ? "grade" : "grades"} or feedback`), " from your trainer"), el("span", { class: "go" }, "View", icon("chev"))) : "";
+      })(),
+      (() => {
+        const rl = redoList(cfg);
+        if (!rl.length) return "";
+        const first = rl[0], dn = Number(first.tag.replace(/\D/g, ""));
+        return el("a", { class: "redobanner", href: first.act === "quiz" ? `#/quiz/${dn}` : `#/act/${dn}/${first.act}` }, icon("undo"),
+          el("span", {}, el("b", {}, rl.length === 1 ? `Your trainer asked you to redo Activity ${first.act}` : `Your trainer asked you to redo ${rl.length} activities`),
+            first.note ? el("span", { class: "nt" }, `“${first.note}”`) : ""), el("span", { class: "go" }, "Open", icon("chev")));
       })(),
       el("div", { class: "label" }, "Training days"),
       el("div", { class: "list" }, ...rows),
@@ -420,8 +432,11 @@ async function viewProgress() {
     const nameOf = (day, id) => (id === "quiz" ? `Day ${day.day} quiz` : `${id} ${(day.activities.find((a) => a.id === id) || {}).title || ""}`);
 
     // The status of every item, in plain words (no legend needed).
+    const rcfg = navCfg();
     const statusOf = (day, it) => {
       const k = `${day.tag}|${it.id}`, s = latest[k], l = working[k], isOpen = open(day.tag, it.id);
+      const rd = redoOf(rcfg, day.tag, it.id);
+      if (rd && isOpen) return { kind: "redo", s, q: s ? pointsOf(s) : null, text: "Redo", note: "Your trainer asked for a redo" + (rd.note ? `: ${rd.note}` : "") };
       if (s) {
         const q = pointsOf(s), f = q.pts / Math.max(1, q.max);
         if (!q.graded) return { kind: "wait", s, q, text: Number(s.autoMax) ? `${round(s.auto)}/${round(s.autoMax)} so far` : "Sent", note: "Waiting for your trainer" };
@@ -457,19 +472,21 @@ async function viewProgress() {
         el("div", {}, el("div", { class: "k" }, "Last active"), el("div", { class: "v sm" }, last ? timeAgo(last) : "—"))));
 
     // ---- 2. next step: continue work in progress, else the first open item not done yet
+    // next step, in this order: a redo the trainer asked for, then work in progress, then the first open item not started
     let next = null;
+    const rank = { redo: 3, draft: 2, open: 1 };
     for (const day of days) for (const it of itemsOf(day)) {
-      const st = statusOf(day, it);
       if (!open(day.tag, it.id)) continue;
-      if (st.kind === "draft") { next = { day, it, st }; break; }
-      if (st.kind === "open" && !next) next = { day, it, st };
+      const st = statusOf(day, it), r = rank[st.kind] || 0;
+      if (r && (!next || r > rank[next.st.kind])) next = { day, it, st };
     }
     const nextCard = next
       ? el("a", { class: "pnext", href: href(next.day.day, next.it.id) },
-        el("div", { class: "k" }, next.st.kind === "draft" ? "Continue where you left off" : "Up next"),
+        el("div", { class: "k" }, next.st.kind === "redo" ? "Your trainer asked for a redo" : next.st.kind === "draft" ? "Continue where you left off" : "Up next"),
         el("div", { class: "t" }, nameOf(next.day, next.it.id)),
-        el("div", { class: "s" }, `Day ${next.day.day}` + (next.st.kind === "draft" ? ` · ${next.st.l.pct}% correct so far` : " · open now")),
-        el("span", { class: "go" }, next.st.kind === "draft" ? "Continue" : "Start", icon("chev")))
+        el("div", { class: "s" }, `Day ${next.day.day}` + (next.st.kind === "redo" ? ` · ${(redoOf(rcfg, next.day.tag, next.it.id) || {}).note || "your answers are still there"}` :
+          next.st.kind === "draft" ? ` · ${next.st.l.pct}% correct so far` : " · open now")),
+        el("span", { class: "go" }, next.st.kind === "redo" ? "Redo it" : next.st.kind === "draft" ? "Continue" : "Start", icon("chev")))
       : el("div", { class: "pnext done" }, el("div", { class: "k" }, "All caught up"),
         el("div", { class: "t" }, "You have done everything that is open."), el("div", { class: "s" }, "New activities appear here when your trainer opens them."));
 
@@ -494,9 +511,9 @@ async function viewProgress() {
     const current = relevant.filter((d) => itemsOf(d).some((it) => open(d.tag, it.id))).pop() || relevant[relevant.length - 1];
     const dayCards = relevant.map((day) => {
       const items = itemsOf(day), sts = items.map((it) => statusOf(day, it));
-      const dDone = sts.filter((x) => x.s).length;
+      const dDone = sts.filter((x) => x.s && x.kind !== "redo").length;
       let dPts = 0, dMax = 0;
-      for (const x of sts) if (x.s && x.q.graded) { dPts += x.q.pts; dMax += x.q.max; }
+      for (const x of sts) if (x.s && x.q && x.q.graded) { dPts += x.q.pts; dMax += x.q.max; }
       const rows = items.map((it, i) => {
         const st = sts[i], isOpen = open(day.tag, it.id), k = `${day.tag}|${it.id}`;
         const tags = [st.s && st.s.late ? el("span", { class: "tag warn" }, "LATE") : "", st.s && count[k] > 1 ? el("span", { class: "tag" }, `${count[k]} tries`) : ""];
@@ -602,7 +619,8 @@ async function viewDay(n) {
   const day = await getDay(n);
   return withConfig(async (cfg) => {
     const tag = day.tag, res = cfg.results[tag] || {}, local = store.get(K.res(tag), {});
-    const statusOf = (open, r, l) => {
+    const statusOf = (open, r, l, rd) => {
+      if (rd && open) return [el("span", { class: "tag warn" }, "REDO"), el("span", {}, "Fix it and submit again")];
       if (!open) return [el("span", { class: "tag" }, "CLOSED"), el("span", { class: "muted" }, "Opens when the trainer starts it")];
       if (r) return [el("span", { class: "tag good" }, "SUBMITTED"), el("span", {}, fmtScore(r))];
       if (l && l.pending) return [el("span", { class: "tag warn" }, "UNSENT"), el("span", { class: "muted" }, "Sends when online")];
@@ -615,8 +633,10 @@ async function viewDay(n) {
         el("div", { class: "num" }, a.id),
         el("div", { class: "title" }, a.title),
         el("div", { class: "sub c-mode" }, a.mode), el("div", { class: "sub c-min" }, `${a.minutes} min`), el("div", { class: "sub c-pts" }, `${a.points} pts`),
-        el("div", { class: "status" }, ...statusOf(open, r, local[a.id])),
+        el("div", { class: "status" }, ...statusOf(open, r, local[a.id], redoOf(cfg, tag, a.id))),
         el("div", { class: "chev" }, open ? icon("chev") : icon("padlock")),
+        redoOf(cfg, tag, a.id) ? el("div", { class: "feedback redo" }, "Your trainer asked you to redo this" +
+          (redoOf(cfg, tag, a.id).note ? `: ${redoOf(cfg, tag, a.id).note}` : ". Your answers are still there: fix them and submit again.")) :
         cfg.unlocked && cfg.unlocked[tag] && cfg.unlocked[tag][a.id] ? el("div", { class: "feedback unl" }, "Your trainer unlocked this activity for you.") : "",
         r && r.feedback ? el("div", { class: "feedback" }, "Trainer feedback: " + r.feedback) : "");
     });
@@ -804,6 +824,26 @@ async function viewActivity(n, actId) {
   const ans = (allAns[actId] = allAns[actId] || {});
   const results = store.get(K.res(tag), {});
   const needsSheet = act.sheet || act.parts.some((p) => ["cells", "spec", "textcells"].includes(p.type));
+  // Nothing on this phone for an activity the student already worked on (another phone, cleared browser): bring back the last
+  // saved answers and workbook from the class server, so a redo starts from their own work.
+  const redo = redoOf(cfg, tag, actId);
+  let restored = false;
+  if (!demoMode() && !Object.keys(ans).some((k) => k !== "partners") && (((cfg.results || {})[tag] || {})[actId] || redo)) {
+    try {
+      const r = await call("myWork", { day: tag, act: actId }, { quiet: true });
+      const pl = r && r.payload;
+      if (pl && pl.sub) {
+        Object.assign(ans, pl.sub.answers || {});
+        store.set(K.ans(tag), allAns);
+        if (pl.wb) {
+          const local = store.get(K.wb(tag));
+          if (!local) store.set(K.wb(tag), pl.wb);
+          else store.set(K.wb(tag), { ...local, edits: { ...(pl.wb.edits || {}), ...(local.edits || {}) } });   // this phone's edits win
+        }
+        restored = true;
+      }
+    } catch { /* offline, or the server is not updated yet: start from what is on this phone */ }
+  }
   if (needsSheet) await loadEngine();
   const wb = needsSheet ? new Workbook(day, store.get(K.wb(tag))) : null;
   let dirty = false, ui = null;
@@ -953,10 +993,26 @@ async function viewActivity(n, actId) {
   }
   // Optional: the student worked in Google Sheets / Excel instead and shares a link (the trainer grades it).
   const hasSheetWork = act.parts.some((p) => p.type === "cells" || p.type === "spec");
-  let linkInput = null;
+  let linkInput = null, lastScore = null;
+  const hasLink = () => /^https:\/\//i.test(String(ans.worklink || "").trim());
+  /** Points as the server records them: with a shared link, the unearned Workbook points move to the trainer to grade. */
+  const asSent = (score, linked = hasLink()) => {
+    let linkPts = 0;
+    if (linked) for (const p of act.parts) {
+      const r = score.parts[p.id];
+      if ((p.type === "cells" || p.type === "spec") && r && !r.manual) linkPts += (Number(r.max) || 0) - (Number(r.pts) || 0);
+    }
+    linkPts = Math.round(linkPts * 100) / 100;
+    return { auto: score.auto, autoMax: Math.round((score.autoMax - linkPts) * 100) / 100, manualMax: score.manualMax + linkPts, linkPts };
+  };
   if (hasSheetWork) {
     linkInput = el("input", { type: "url", inputmode: "url", value: ans.worklink || "", placeholder: "https://docs.google.com/spreadsheets/d/…" });
-    linkInput.addEventListener("input", () => { const v = linkInput.value.trim(); if (v) ans.worklink = v; else delete ans.worklink; touch(); });
+    linkInput.addEventListener("input", () => {
+      const v = linkInput.value.trim(), had = hasLink();
+      if (v) ans.worklink = v; else delete ans.worklink;
+      touch();
+      if (had !== hasLink() && lastScore) showFeedback(lastScore);       // switch the Workbook feedback to / from "graded from your link"
+    });
     form.append(el("div", { class: "part worklink", "data-part": "worklink" },
       el("div", { class: "phead" }, el("span", { class: "pprompt" }, "Optional: did you work in Google Sheets or Excel instead?"), el("span", { class: "ppts" }, "optional")),
       el("p", { class: "small muted" }, "Leave this empty if you worked in the lab's Workbook. Otherwise paste the share link of your file here. First set its sharing to ",
@@ -967,7 +1023,12 @@ async function viewActivity(n, actId) {
     el("div", {}, el("b", {}, "Your Workbook is saved in the lab. "), "Everything you do in the Workbook tab (formulas, charts, highlights) is saved as you work and recorded when you tap ",
       el("b", {}, "Submit"), ". You do not need to copy it to Excel or upload a file. Worked in Google Sheets or Excel instead? Paste your file's link at the end of the Answers."),
     el("button", { class: "btn small", type: "button", onclick: (e) => { store.set(syncKey, true); e.currentTarget.parentElement.remove(); } }, "Got it")) : "";
-  const left = el("div", { class: "pane pane-task" }, syncNote, steps, el("div", { class: "task-sec" }, el("div", { class: "label" }, "Answers"), form));
+  const redoBox = redo ? el("div", { class: "redobox" },
+    el("div", { class: "k" }, icon("undo"), "Your trainer asked you to redo this activity"),
+    redo.note ? el("div", { class: "nt" }, redo.note) : "",
+    el("div", { class: "small" }, (restored ? "Your last submitted answers were brought back. " : "Your answers are still here. ") +
+      "Change what you need, then tap Submit again." + (hasSheetWork ? " Shared a Google Sheets / Excel link? You can keep it or replace it in the Submit window." : ""))) : "";
+  const left = el("div", { class: "pane pane-task" }, redoBox, syncNote, steps, el("div", { class: "task-sec" }, el("div", { class: "label" }, "Answers"), form));
   const right = needsSheet ? el("div", { class: "pane pane-sheet" }, el("div", { class: "sheethost" })) : null;
 
   // ---- bottom bar
@@ -1028,10 +1089,21 @@ async function viewActivity(n, actId) {
   }
   function showFeedback(score) {
     const marks = {};
+    lastScore = score;
+    const linked = hasLink();
     for (const p of act.parts) {
       const r = score.parts[p.id], { box, fb } = partEls[p.id];
-      box.classList.remove("good", "bad", "half");
+      box.classList.remove("good", "bad", "half", "linked");
       if (r.manual) { fb.textContent = "Your trainer will grade this."; continue; }
+      // Worked in Google Sheets / Excel and shared the link: the Workbook part is graded by the trainer from that file.
+      if (linked && (p.type === "cells" || p.type === "spec") && r.frac < 1) {
+        const right = p.type === "cells" ? Object.values(r.detail).filter((x) => x === 1).length : 0;
+        fb.textContent = "You shared a link to your Google Sheets / Excel file, so your trainer grades this part from your file." +
+          (right ? ` (${right} of ${p.cells.length} cells done here in the lab already count.)` : "");
+        box.classList.add("linked");
+        if (p.type === "cells") for (const [ref, v] of Object.entries(r.detail)) if (v === 1) marks[ref] = "ok";
+        continue;
+      }
       if (p.type === "cells") {
         const d = r.detail, right = Object.values(d).filter((x) => x === 1).length;
         const noF = Object.values(d).filter((x) => x === -1).length, empty = Object.values(d).filter((x) => x === -2).length;
@@ -1149,50 +1221,90 @@ async function viewActivity(n, actId) {
     showFeedback(score);
     results[actId] = { ...(results[actId] || {}), checked: { auto: score.auto, autoMax: score.autoMax } };
     store.set(K.res(tag), results);
-    toast(`Auto-checked: ${round(score.auto)} of ${round(score.autoMax)} pts` + (score.manualMax ? ` (+${score.manualMax} ${score.manualMax === 1 ? "pt" : "pts"} graded by the trainer)` : ""));
+    const x = asSent(score);
+    toast(`Auto-checked: ${round(x.auto)} of ${round(x.autoMax)} pts` + (x.manualMax ? ` (+${round(x.manualMax)} ${x.manualMax === 1 ? "pt" : "pts"} graded by the trainer` +
+      (x.linkPts ? ", including your shared file" : "") + ")" : ""));
     saveDraft(true);
   });
   /** True when nothing was done in the Workbook for this activity (no answer cells filled, no chart / ToolPak / highlight made). */
   const sheetEmpty = (sub, score) => act.parts.every((p) =>
     p.type === "cells" ? p.cells.every((r) => !sub.cells[r] || String(sub.cells[r].f ?? "").trim() === "") :
     p.type === "spec" ? !(score.parts[p.id] || {}).frac : true);
-  /** The Workbook is empty: go back to it, share a Google Sheets / Excel link, or submit anyway. Resolves "link", "anyway" or null. */
-  const askEmptySheet = () => new Promise((resolve) => {
+  /** The Submit window for activities with a Workbook: the student chooses how the Workbook part is turned in,
+   *  their work in the lab's Workbook or a link to their Google Sheets / Excel file. Resolves { changed } or null (cancelled). */
+  const askSubmit = (sub, score) => new Promise((resolve) => {
     let done = false, iv = null, m = null;
     const finish = (v) => { if (done) return; done = true; clearInterval(iv); m && m.close(); resolve(v); };
-    const input = el("input", { type: "url", inputmode: "url", placeholder: "https://docs.google.com/spreadsheets/d/…" });
+    const empty = sheetEmpty(sub, score);
+    const cellParts = act.parts.filter((p) => p.type === "cells" && !p.manual), specParts = act.parts.filter((p) => p.type === "spec" && !p.manual);
+    const nCells = cellParts.reduce((a, p) => a + p.cells.length, 0);
+    const filled = cellParts.reduce((a, p) => a + p.cells.filter((r) => sub.cells[r] && String(sub.cells[r].f ?? "").trim() !== "").length, 0);
+    const right = cellParts.reduce((a, p) => a + Object.values((score.parts[p.id] || {}).detail || {}).filter((x) => x === 1).length, 0);
+    const specDone = specParts.filter((p) => (score.parts[p.id] || {}).frac === 1).length;
+    const sheetPts = [...cellParts, ...specParts].reduce((a, p) => a + p.points, 0);
+    const labNote = empty ? "Your Workbook is still empty, so there is nothing to check yet." :
+      [nCells ? `${filled} of ${nCells} cells filled, ${right} correct` : "",
+        specParts.length ? `${specDone} of ${specParts.length} chart / ToolPak / highlight step${specParts.length === 1 ? "" : "s"} found` : ""].filter(Boolean).join(" · ") +
+      ". The lab checks it now.";
+    const input = el("input", { type: "url", inputmode: "url", name: "worklink", value: ans.worklink || "", placeholder: "https://docs.google.com/spreadsheets/d/…" });
     const err = el("p", { class: "small bad" });
-    const withLink = el("button", { class: "btn primary", type: "button" }, "Submit with this link");
-    withLink.addEventListener("click", () => {
-      const v = input.value.trim();
-      if (!/^https:\/\//i.test(v)) { err.textContent = "Paste the full link. It starts with https://"; return; }
-      ans.worklink = v;
-      if (linkInput) linkInput.value = v;
-      touch();
-      finish("link");
-    });
-    const box = el("div", { class: "form" },
-      el("p", {}, "Your ", el("b", {}, "Workbook"), " for this activity is still empty, so the lab cannot check that part."),
-      el("div", { class: "label" }, "Did you work in Google Sheets or Excel?"),
-      el("p", { class: "small muted" }, "Paste the share link of your file. First set its sharing to ", el("b", {}, "Anyone with the link · Viewer"),
-        " (Google Sheets: Share › General access; Excel: Share › Copy link). Your trainer opens it and grades the workbook part."),
-      el("label", {}, "Link to my file", input), err,
+    const rLab = el("input", { type: "radio", name: "how", value: "lab" }), rLink = el("input", { type: "radio", name: "how", value: "link" });
+    (hasLink() || empty ? rLink : rLab).checked = true;
+    const opt = (r, title, note) => el("label", { class: "howopt" }, r, el("span", { class: "howtxt" }, el("b", {}, title), el("span", { class: "small muted" }, note)));
+    const opts = [opt(rLab, "My work in the lab's Workbook", labNote),
+      opt(rLink, "A link to my Google Sheets / Excel file", "Worked outside the lab? Your trainer opens your file and grades the Workbook part.")];
+    const linkBox = el("div", { class: "howlink" }, el("label", {}, "Link to my file", input),
+      el("p", { class: "small muted" }, "First set the file's sharing to ", el("b", {}, "Anyone with the link · Viewer"),
+        " (Google Sheets: Share › General access; Excel: Share › Copy link)."), err);
+    const summary = el("div", { class: "subsum" });
+    const manualEmpty = act.parts.filter((p) => p.manual && p.type === "text" && !(ans[p.id] || "").trim()).length;
+    const refresh = () => {
+      const link = rLink.checked, x = asSent(score, link);
+      linkBox.hidden = !link;
+      opts.forEach((o) => o.classList.toggle("on", o.querySelector("input").checked));
+      summary.replaceChildren(
+        el("div", { class: "ln" }, el("span", {}, "Checked by the lab now"), el("b", { class: "mono" }, `${round(x.auto)} / ${round(x.autoMax)} pts`)),
+        x.manualMax ? el("div", { class: "ln" }, el("span", {}, link ? "Graded by your trainer (includes your file)" : "Graded by your trainer"),
+          el("b", { class: "mono" }, `${round(x.manualMax)} pts`)) : "",
+        !link && empty ? el("p", { class: "warnline" }, "Your Workbook is empty, so the Workbook part gets 0 points.") : "",
+        manualEmpty ? el("p", { class: "warnline" }, `${manualEmpty} written answer${manualEmpty === 1 ? " is" : "s are"} still empty.`) : "");
+    };
+    [rLab, rLink].forEach((r) => r.addEventListener("change", () => { refresh(); if (rLink.checked) input.focus(); }));
+    input.addEventListener("input", () => { err.textContent = ""; });
+    const form = el("form", { class: "form submitbox", novalidate: true },
+      el("p", { class: "howq" }, `How are you turning in the Workbook part (${round(sheetPts)} pts)?`), ...opts, linkBox, summary,
+      el("p", { class: "small muted" }, "You can submit again later; the latest submission counts."),
       el("div", { class: "actions" },
-        el("button", { class: "btn", type: "button", onclick: () => { finish(null); showPane("sheet"); } }, "Go to the Workbook"),
-        el("button", { class: "btn", type: "button", onclick: () => finish("anyway") }, "Submit without it"), withLink));
-    m = modal(`Activity ${act.id}: the Workbook is empty`, box);
+        el("button", { class: "btn", type: "button", onclick: () => finish(null) }, "Cancel"),
+        empty ? el("button", { class: "btn", type: "button", onclick: () => { finish(null); showPane("sheet"); } }, "Go to the Workbook") : "",
+        el("button", { class: "btn primary", type: "submit", name: "submitgo" }, "Submit")));
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const before = ans.worklink || "";
+      if (rLink.checked) {
+        const v = input.value.trim();
+        if (!/^https:\/\//i.test(v)) { err.textContent = "Paste the full link of your file. It starts with https://"; input.focus(); return; }
+        ans.worklink = v;
+      } else delete ans.worklink;                    // turning in the lab's Workbook: no link
+      if (linkInput) linkInput.value = ans.worklink || "";
+      const changed = (ans.worklink || "") !== before;
+      if (changed) touch();
+      finish({ changed });
+    });
+    refresh();
+    m = modal(`Submit Activity ${act.id}`, form);
     iv = setInterval(() => { if (!document.body.contains(m.box)) finish(null); }, 400);   // closed with X / Esc
   });
   btnSubmit.addEventListener("click", async () => {
     let { sub, score } = await evaluate();
-    if (hasSheetWork && !ans.worklink && sheetEmpty(sub, score)) {
-      const choice = await askEmptySheet();
+    if (hasSheetWork) {
+      const choice = await askSubmit(sub, score);
       if (!choice) return;
-      if (choice === "link") ({ sub, score } = await evaluate());
+      if (choice.changed) ({ sub, score } = await evaluate());
     } else {
       const manualEmpty = act.parts.filter((p) => p.manual && p.type === "text" && !(ans[p.id] || "").trim()).length;
       const msg = `Submit Activity ${act.id}?\n\nAuto-checked part: ${round(score.auto)} / ${round(score.autoMax)} pts` +
-        (score.manualMax ? `\nTrainer-graded part: ${score.manualMax} pts` : "") + (ans.worklink ? "\nYour Google Sheets / Excel link is included." : "") +
+        (score.manualMax ? `\nTrainer-graded part: ${round(score.manualMax)} pts` : "") +
         (manualEmpty ? `\n\nNote: ${manualEmpty} written answer(s) are still empty.` : "") +
         "\n\nYou can submit again later; the latest submission counts.";
       if (!confirm(msg)) return;
@@ -1212,6 +1324,11 @@ async function viewActivity(n, actId) {
       const r = await sendOrQueue("submit", body, { onDoneKey: null });
       if (r.sent) {
         results[actId] = { ...(results[actId] || {}), server: r.data.result, pending: false };
+        if (redo) {                                                     // the trainer's redo request is answered
+          const c = store.get(`dal3_cfg_${uid()}`);
+          if (c && c.redo && c.redo[tag]) { delete c.redo[tag][actId]; store.set(`dal3_cfg_${uid()}`, c); }
+          if (redoBox && redoBox.isConnected) redoBox.replaceWith(el("div", { class: "tdone" }, icon("check"), el("span", {}, "Redo sent to your trainer.")));
+        }
         status.textContent = `Submitted: ${fmtScore(r.data.result)}`;
         store.set(K.res(tag), results);
         const link = await classroomLink().catch(() => "");
@@ -1381,6 +1498,7 @@ async function viewTrainer() {
   /** Options for the detail popup: Save / Save & next, and the table updates at once after a grade. */
   const gradeOpts = (x) => (!x ? {} : {
     nextCount: () => pendingList().filter((y) => pkey(y) !== pkey(x)).length,
+    onRedo: () => { render(); setTimeout(() => refresh(true), 1200); },
     onGraded: (goNext, ids) => {
       (ids || [x.id]).forEach((id) => { const k = `${id}|${x.day}|${x.act}`; justGraded.add(k); arrivals.delete(k); setTimeout(() => justGraded.delete(k), 2500); });
       render();
@@ -1667,7 +1785,9 @@ async function viewTrainer() {
         } else if (first) {
           txt = "OPENED"; cls = "seen"; title = `Opened at ${hm(first)} · nothing saved yet`;
         }
-        if (acc[it.id] && !en[it.id]) { cls += " unl"; title = (title ? title + " · " : "") + "Unlocked for this student only"; }
+        const rq = ((((data.redo || {})[st.id.toUpperCase()] || {})[tag]) || {})[it.id];
+        if (rq) { cls = "redo"; txt = "REDO"; title = `Returned for redo ${timeAgo(rq.at)}` + (rq.note ? `: ${rq.note}` : "") + " · waiting for the student to submit again"; }
+        else if (acc[it.id] && !en[it.id]) { cls += " unl"; title = (title ? title + " · " : "") + "Unlocked for this student only"; }
         const td = el("td", { class: cls, title }, txt);
         if (s || l) {
           td.tabIndex = 0;
@@ -1688,6 +1808,7 @@ async function viewTrainer() {
     legend.replaceChildren(el("span", { class: "lg-good" }, "80% or more"), el("span", { class: "lg-half" }, "50–79%"), el("span", { class: "lg-bad" }, "Below 50%"),
       el("span", { class: "lg-draft" }, "Working now: % of auto-checked points correct"), el("span", { class: "lg-need" }, "Amber = needs your grade (click it). The number on a column = how many are waiting"),
       el("span", {}, "LATE: submitted after you closed it"), el("span", { class: "lg-unl" }, "Unlocked for this student only"),
+      el("span", { class: "lg-redo" }, "REDO: returned to the student, waiting for their new submission"),
       el("span", {}, "OPENED: started, nothing saved yet"), el("span", {}, "Select a cell to open the student's work; select a name to unlock activities for one student"));
   }
   refresh(false);
@@ -1776,6 +1897,46 @@ async function openDetail(st, day, item, s, l, opts = {}) {
       h.length > 1 ? el("p", { class: "small muted" }, "Select a row to see what the student sent in that attempt.") : "");
   }
   load();
+  /** "Return for redo": the student keeps their answers, fixes them and submits again (a shared link can be replaced). */
+  function redoPanel() {
+    const panel = el("div", { class: "redoask" });
+    const cur = () => ((((boardData && boardData.redo) || {})[st.id.toUpperCase()] || {})[day.tag] || {})[item.id] || null;
+    const send = async (body, btn) => {
+      btn.disabled = true;
+      try {
+        const r = await trainerCall("redo", { sid: st.id, day: day.tag, act: item.id, ...body });
+        if (boardData) { boardData.redo = r.all || boardData.redo; boardData.access = r.access || boardData.access; }
+        toast(body.cancel ? "Redo request taken back." : r.updated ? "Redo note updated." :
+          `Returned to ${st.name} for a redo.` + (r.unlocked ? " The activity is open for this student only." : ""), "good");
+        draw();
+        if (opts.onRedo) opts.onRedo();
+      } catch (e) { toast(/unknown action/i.test(e.message) ? "Update the Apps Script server first (SETUP.md: Redo update)." : e.message, "bad"); btn.disabled = false; }
+    };
+    const draw = () => {
+      const rq = cur();
+      panel.classList.toggle("on", !!rq);
+      const note = el("textarea", { name: "redonote", rows: 2, placeholder: "What should the student fix? (optional, they see this)" }, rq ? rq.note : "");
+      if (rq) {
+        const upd = el("button", { class: "btn small", type: "button", name: "redoupdate" }, "Update note");
+        const back = el("button", { class: "btn small", type: "button", name: "redocancel" }, "Take back the redo");
+        upd.addEventListener("click", () => send({ note: note.value.trim() }, upd));
+        back.addEventListener("click", () => send({ cancel: true }, back));
+        panel.replaceChildren(el("h3", {}, icon("undo"), "Returned for redo ", el("span", { class: "small muted" }, timeAgo(rq.at))),
+          el("p", { class: "small muted" }, "Waiting for the student to submit again. Their answers are still there, and the activity is open for them. " +
+            "When they submit, the cell turns amber (if it needs your grade) and this request closes by itself."),
+          note, el("div", { class: "btnrow" }, upd, back));
+      } else {
+        const go = el("button", { class: "btn", type: "button", name: "redogo" }, icon("undo"), "Return for redo");
+        go.addEventListener("click", () => send({ note: note.value.trim() }, go));
+        panel.replaceChildren(el("h3", {}, "Ask for a redo"),
+          el("p", { class: "small muted" }, "The student keeps all their answers, fixes what you ask and submits again. A shared Google Sheets / Excel link can be kept or replaced. " +
+            "If the activity is closed, it opens for this student only (not marked LATE)."),
+          note, el("div", { class: "btnrow" }, go));
+      }
+    };
+    draw();
+    return panel;
+  }
   function render(d) {
   const rec = d.final || d.live;
   if (!rec) { body.replaceChildren(el("p", {}, "No work yet.")); return; }
@@ -1885,6 +2046,7 @@ async function openDetail(st, day, item, s, l, opts = {}) {
       });
       kids.push(g);
     }
+    if (d.final && !older) kids.push(redoPanel());
     if (payload.wb) {
       const host = el("div", { class: "sheethost ro" });
       const btn = el("button", { class: "btn", type: "button" }, "Show the student's workbook");
