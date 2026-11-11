@@ -126,8 +126,77 @@ function shell(title, back, ...body) {
     crumbs, pend,
     demoMode() ? el("span", { class: "tb-flag", title: "No class server configured: work stays on this device" }, "DEMO") : "",
     s ? el("button", { class: "tb-btn tb-user", type: "button", onclick: () => accountMenu() }, s.id) : "");
-  app.replaceChildren(head, el("main", { class: cls }, ...body));
+  const main = el("main", { class: cls }, ...body);
+  // Students get the sidebar (PC/tablet) and bottom tabs (phone); sign-in and trainer pages keep the plain layout.
+  const student = !!s && !/^(Sign in|Trainer)/.test(String(title)) && !location.hash.startsWith("#/trainer");
+  const work = /\bwork\b/.test(cls);                 // activity / workbook / SQL: the sidebar shrinks to icons, no bottom tabs
+  document.body.classList.toggle("has-snav", student);
+  document.body.classList.toggle("has-bnav", student && !work);
+  if (!student) app.replaceChildren(head, main);
+  else {
+    const rail = work || !!store.get("dal3_rail", false);
+    const body_ = el("div", { class: "appbody" + (rail ? " rail" : "") }, sideNav(rail, work), main);
+    document.body.classList.toggle("snav-rail", rail);
+    app.replaceChildren(head, body_, work ? "" : bottomNav());
+    if (!cache.index) getIndex().then(() => { const a = body_.querySelector(".sidenav"); if (a && a.isConnected) a.replaceWith(sideNav(rail, work)); }).catch(() => {});
+  }
   window.scrollTo(0, 0);
+}
+
+// ------------------------------------------------------------------ student navigation: sidebar (PC/tablet) + bottom tabs (phone)
+const hashDay = () => { const m = location.hash.match(/^#\/(?:day|lesson|sheet|sql|act|quiz|files)\/(\d+)/); return m ? Number(m[1]) : null; };
+const navCfg = () => store.get(`dal3_cfg_${uid()}`) || null;
+/** The day to send a student to: the one they are on, else the latest day with something open, else Day 1 of the list. */
+function currentDay(cfg) {
+  const days = (cache.index && cache.index.days) || [];
+  const withOpen = cfg && cfg.enabled ? days.filter((d) => [...d.activities.map((a) => a.id), "quiz"].some((id) => isOpen(cfg, d.tag, id))) : [];
+  return hashDay() || (withOpen.pop() || days[days.length - 1] || {}).day || null;
+}
+function sideNav(rail, work) {
+  const cfg = navCfg(), s = session.get() || {}, h = location.hash || "#/", here = hashDay();
+  const ng = cfg && !demoMode() ? newGrades(cfg).length : 0;
+  const link = (href, ic, label, on, extra) => el("a", { class: "sn-link" + (on ? " on" : ""), href, title: label, "aria-current": on ? "page" : null },
+    icon(ic), el("span", { class: "sn-t" }, label), extra || "");
+  const days = (cache.index && cache.index.days) || [];
+  const dayRows = days.map((d) => {
+    const ids = [...d.activities.map((a) => a.id), "quiz"], total = ids.length;
+    const res = (cfg && cfg.results && cfg.results[d.tag]) || {};
+    const done = ids.filter((id) => res[id]).length;
+    const openN = cfg && cfg.enabled ? ids.filter((id) => isOpen(cfg, d.tag, id)).length : total;
+    const locked = !!(cfg && cfg.enabled) && !openN && !done;
+    const on = here === d.day;
+    return el("a", { class: "sn-day" + (on ? " on" : "") + (locked ? " locked" : "") + (openN && !locked ? " live" : ""), href: `#/day/${d.day}`,
+      title: `Day ${d.day}: ${d.title}` + (locked ? " (not open yet)" : ` · ${done} of ${total} done`), "aria-current": on ? "page" : null },
+      el("span", { class: "sn-dn mono" }, String(d.day).padStart(2, "0")),
+      el("span", { class: "sn-t sn-dbody" }, el("span", { class: "sn-dt" }, d.title),
+        el("span", { class: "sn-bar" }, el("span", { style: `width:${Math.round(100 * done / total)}%` }))),
+      el("span", { class: "sn-t sn-c" }, locked ? icon("padlock") : `${done}/${total}`));
+  });
+  const initials = (s.name || s.id || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+  const toggle = work ? "" : el("button", { class: "sn-link sn-collapse", type: "button", title: rail ? "Show the full menu" : "Make the menu narrow",
+    onclick: () => { store.set("dal3_rail", !rail); route(); } }, icon(rail ? "chev" : "back"), el("span", { class: "sn-t" }, "Narrow menu"));
+  return el("aside", { class: "sidenav", "aria-label": "Lab menu" },
+    el("button", { class: "sn-user", type: "button", title: "Account and display settings", onclick: () => accountMenu() },
+      el("span", { class: "sn-av" }, initials), el("span", { class: "sn-t" }, el("b", {}, s.name || s.id || ""), el("span", { class: "muted" }, s.id && s.name ? s.id : ""))),
+    el("nav", { class: "sn-main" },
+      link("#/", "home", "Home", h === "#/" || h === "#" || h === ""),
+      demoMode() ? "" : link("#/progress", "chart", "My progress", h.startsWith("#/progress"), ng ? el("span", { class: "sn-dot", title: `${ng} new grade(s)` }, String(ng)) : "")),
+    days.length ? el("div", { class: "sn-label sn-t" }, "Training days") : "",
+    el("nav", { class: "sn-days", "aria-label": "Training days" }, ...dayRows),
+    el("div", { class: "sn-foot" },
+      el("button", { class: "sn-link", type: "button", title: "Account, text size, theme, sign out", onclick: () => accountMenu() }, icon("gear"), el("span", { class: "sn-t" }, "Settings")),
+      toggle));
+}
+function bottomNav() {
+  const cfg = navCfg(), h = location.hash || "#/", n = currentDay(cfg);
+  const ng = cfg && !demoMode() ? newGrades(cfg).length : 0;
+  const tab = (href, ic, label, on, dot) => el(href ? "a" : "button", href ? { class: "bn" + (on ? " on" : ""), href, "aria-current": on ? "page" : null }
+    : { class: "bn", type: "button", onclick: () => accountMenu() }, el("span", { class: "bn-ic" }, icon(ic), dot ? el("span", { class: "bn-dot" }, String(dot)) : ""), el("span", {}, label));
+  return el("nav", { class: "bnav", "aria-label": "Lab menu" },
+    tab("#/", "home", "Home", h === "#/" || h === "#" || h === ""),
+    n ? tab(`#/day/${n}`, "list", `Day ${n}`, !!hashDay()) : "",
+    demoMode() ? "" : tab("#/progress", "chart", "Progress", h.startsWith("#/progress"), ng),
+    tab(null, "user", "Account"));
 }
 /** Tabs shown on every page of a day, so students can move between its parts in one tap. */
 function dayTabs(n, active) {
@@ -266,7 +335,6 @@ async function viewHome() {
         return ng.length ? el("a", { class: "newgrades", href: "#/progress" }, el("span", { class: "dot" }),
           el("span", {}, el("b", {}, `${ng.length} new ${ng.length === 1 ? "grade" : "grades"} or feedback`), " from your trainer"), el("span", { class: "go" }, "View", icon("chev"))) : "";
       })(),
-      demoMode() ? "" : el("div", { class: "toolrow" }, el("a", { class: "btn", href: "#/progress" }, icon("chart"), "My progress and activity log")),
       el("div", { class: "label" }, "Training days"),
       el("div", { class: "list" }, ...rows),
       el("p", { class: "small muted", style: "margin-top:10px" }, "Days 4 to 15 are added as the course progresses."));
