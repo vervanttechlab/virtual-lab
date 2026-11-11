@@ -1040,3 +1040,35 @@ a.pitem:hover { text-decoration: none; background: var(--panel-2); }
 .teampick { max-height: 45vh; overflow-y: auto; }
 .rowsplit { display: flex; justify-content: space-between; align-items: baseline; }
 @media (max-width: 800px) { .teamsgrid { grid-template-columns: 1fr; } .rpanel { position: static; max-height: 60vh; } }
+/* trainer board colour key: one compact row (folded on phones) */
+.boardkey { flex: none; margin: 6px 12px 10px; font-size: 11.5px; color: var(--muted); }
+.boardkey > summary { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; padding: 2px 0; list-style: none; }
+.boardkey > summary::-webkit-details-marker { display: none; }
+.boardkey > summary::before { content: "▸"; font-size: 10px; transition: transform .15s; }
+.boardkey[open] > summary::before { transform: rotate(90deg); }
+.boardkey .hint { font-weight: 400; }
+.boardkey .legend { gap: 4px 12px; padding: 4px 0 0; font-size: 11.5px; line-height: 1.4; }
+.boardkey .legend span { white-space: nowrap; cursor: help; }
+.boardkey .legend .lg-txt::before { display: none; }
+.boardkey .legend .lg-txt { font-weight: 600; }
+@media (max-width: 700px) { .boardkey .hint { display: none; } .boardkey { margin: 6px 10px 8px; } }
+/* "More ▾" drop-down (trainer board bar) */
+.menuwrap { position: relative; }
+.menuwrap .caret { margin-left: 4px; font-size: 10px; }
+.menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 210px; background: var(--panel); border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18); padding: 4px 0; display: flex; flex-direction: column; }
+.menu[hidden] { display: none; }
+.menu .menuitem { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: flex-start; border: 0; background: transparent; padding: 0 14px;
+  min-height: 38px; font-size: 13.5px; color: var(--ink); text-align: left; }
+.menu .menuitem:hover, .menu .menuitem:focus-visible { background: var(--panel-2); outline: none; text-decoration: none; }
+@media (max-width: 600px) {
+  .boardbar { gap: 6px; }
+  .boardbar select { flex: 1 1 100%; max-width: 100%; }
+  .boardbar .grow { display: none; }
+  .boardbar .livedot { margin-right: auto; }
+}
+@media (max-width: 600px) {
+  .boardbar .livedot { min-width: 0; }
+  .boardbar .livedot .lu { display: none; }                       /* phones: "● Live" only (the time is in the tooltip) */
+}
+.menu.left { right: auto; left: 0; }

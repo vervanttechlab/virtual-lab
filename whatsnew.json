@@ -2,6 +2,13 @@
   "_how": "Newest first. When sw.js VERSION changes, add an entry with the SAME v. 'student' items are shown to students in the update window, 'trainer' items on the trainer board. Leave a list empty if that side has nothing new (they then see 'Small fixes and improvements').",
   "versions": [
     {
+      "v": "dal3-lab-v43",
+      "student": [],
+      "trainer": [
+        "Tidier board: the colour key is one short row (folded on phones), and Video link, Classroom links, Export, Board settings and Log out are under More."
+      ]
+    },
+    {
       "v": "dal3-lab-v42",
       "student": [
         "My team: chat with your team (your trainer can read it too) and see work your teammates shared with you.",

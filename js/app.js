@@ -1786,6 +1786,11 @@ async function viewTrainer() {
   const toggles = el("div", { class: "switches" });
   const table = el("div", { class: "board" });
   const legend = el("div", { class: "legend" });
+  // colour key: one compact row; folded on phones (remembered per browser)
+  const keyOpen = store.get("dal3_board_key", null);
+  const legendBox = el("details", { class: "boardkey", open: (keyOpen ?? window.innerWidth > 700) || null },
+    el("summary", {}, "Colour key", el("span", { class: "hint" }, "Click a cell to see the work · click a name to unlock for one student")), legend);
+  legendBox.addEventListener("toggle", () => store.set("dal3_board_key", legendBox.open));
   const linksBtn = el("button", { class: "btn small", type: "button", title: "Google Classroom assignment link for each activity" }, "Classroom links");
   const videoBtn = el("button", { class: "btn small", type: "button", title: "Google Drive link of this day's demo video" }, icon("play"), "Video link");
   const exportBtn = el("button", { class: "btn small", type: "button", title: "This day's scores as a CSV file" }, icon("download"), "Export CSV");
@@ -1796,12 +1801,14 @@ async function viewTrainer() {
   let prevPending = null;                          // pending keys at the last refresh (to spot new arrivals)
   const arrivals = new Set(), justGraded = new Set();
   const pkey = (x) => `${x.id}|${x.day}|${x.act}`;
-  const settings = el("button", { class: "btn small icon", type: "button", title: "Board settings", "aria-label": "Board settings" }, icon("gear"));
+  const settings = el("button", { class: "btn small", type: "button", title: "Board settings" }, icon("gear"), "Board settings");
   const logout = el("button", { class: "btn small", type: "button", title: "Log out of the trainer board on this browser" }, icon("logout"), "Log out");
   logout.addEventListener("click", trainerLogout);
   const teamsBtn = el("a", { class: "btn small", href: "#/trainer/teams", title: "Make student teams, read their team chats" }, icon("users"), "Teams");
-  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), queueBtn, teamsBtn, videoBtn, linksBtn, exportBtn, gradesBtn, settings, logout),
-    toggles, table, legend, { __cls: "page work" });
+  // the everyday buttons stay in the bar; the rest go under "More" (one row, also on phones)
+  const more = menuButton("More", [videoBtn, linksBtn, exportBtn, gradesBtn, settings, logout]);
+  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), queueBtn, teamsBtn, more),
+    toggles, table, legendBox, { __cls: "page work" });
   let data = null;
   settings.addEventListener("click", trainerSettings);
   daySel.addEventListener("change", () => { store.set("dal3_board_day", daySel.value); render(); });
@@ -2012,7 +2019,8 @@ async function viewTrainer() {
         } else if (added.length > 1) toast(`${added.length} new submissions need your grade.`, "good");
       }
       prevPending = keys;
-      live.textContent = `Live · updated ${new Date().toLocaleTimeString()}`;
+      live.replaceChildren("Live", el("span", { class: "lu" }, ` · updated ${new Date().toLocaleTimeString()}`));
+      live.title = live.textContent;
       live.className = "livedot";
       render();
     } catch (e) {
@@ -2134,16 +2142,40 @@ async function viewTrainer() {
         el("td", { class: "total" }, round(total)), el("td", { class: "when" }, last ? timeAgo(last) : "—"));
     });
     table.replaceChildren(el("table", { class: "boardtable" }, el("thead", {}, thead), el("tbody", {}, ...rows)));
-    legend.replaceChildren(el("span", { class: "lg-good" }, "80% or more"), el("span", { class: "lg-half" }, "50–79%"), el("span", { class: "lg-bad" }, "Below 50%"),
-      el("span", { class: "lg-draft" }, "Working now: % of auto-checked points correct"), el("span", { class: "lg-need" }, "Amber = needs your grade (click it). The number on a column = how many are waiting"),
-      el("span", {}, "LATE: submitted after you closed it"), el("span", { class: "lg-unl" }, "Unlocked for this student only"),
-      el("span", { class: "lg-redo" }, "REDO: returned to the student, waiting for their new submission"),
-      el("span", {}, "OPENED: started, nothing saved yet"), el("span", {}, "Select a cell to open the student's work; select a name to unlock activities for one student"));
+    // short labels; the longer explanation is in each item's tooltip
+    const k = (cls, txt, tip) => el("span", { class: cls, title: tip }, txt);
+    legend.replaceChildren(k("lg-good", "80%+", "Score of 80% or more"), k("lg-half", "50–79%", "Score from 50 to 79%"), k("lg-bad", "<50%", "Score below 50%"),
+      k("lg-draft", "Working", "Working now: % of the auto-checked points correct so far"),
+      k("lg-need", "Needs grade", "Amber: click it to grade. The number on a column = how many wait"),
+      k("lg-redo", "REDO", "Returned to the student, waiting for their new submission"),
+      k("lg-unl", "Unlocked", "Unlocked for this student only"),
+      k("lg-txt", "LATE", "Submitted after you closed the activity"), k("lg-txt", "OPENED", "Started, nothing saved yet"));
   }
   refresh(false);
   const t = setInterval(() => refresh(true), CONFIG.BOARD_REFRESH_SECONDS * 1000);
   onLeave(() => clearInterval(t));
 }
+/** A "More ▾" button with a drop-down list of existing buttons (they keep their own click handlers). */
+function menuButton(label, items) {
+  const btn = el("button", { class: "btn small", type: "button", "aria-haspopup": "true", "aria-expanded": "false" }, label, el("span", { class: "caret" }, "▾"));
+  const list = el("div", { class: "menu", role: "menu", hidden: true });
+  for (const it of items) { it.classList.add("menuitem"); it.setAttribute("role", "menuitem"); list.append(it); }
+  const wrap = el("div", { class: "menuwrap" }, btn, list);
+  const close = () => { list.hidden = true; btn.setAttribute("aria-expanded", "false"); document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", esc); };
+  const outside = (e) => { if (!wrap.contains(e.target)) close(); };
+  const esc = (e) => { if (e.key === "Escape") { close(); btn.focus(); } };
+  btn.addEventListener("click", () => {
+    if (!list.hidden) return close();
+    list.hidden = false; btn.setAttribute("aria-expanded", "true");
+    list.classList.toggle("left", wrap.getBoundingClientRect().right < list.offsetWidth + 8);   // open toward the side with room
+    document.addEventListener("pointerdown", outside); document.addEventListener("keydown", esc);
+    list.querySelector(".menuitem")?.focus();
+  });
+  list.addEventListener("click", (e) => { if (e.target.closest(".menuitem")) close(); });
+  onLeave(close);
+  return wrap;
+}
+
 // ------------------------------------------------------------------ trainer: Teams (make teams, read and write in their chats)
 async function viewTeams() {
   if (!trainer.get()) return trainerLogin();
