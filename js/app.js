@@ -1325,16 +1325,54 @@ function trainerSettings() {
 async function openDetail(st, day, item, s, l) {
   const body = el("div", { class: "detail" }, el("p", { class: "muted" }, "Loading…"));
   const m = modal(`${st.name} · ${item.id === "quiz" ? "Quiz" : "Activity " + item.id}`, body, { wide: true });
-  let d;
-  try { d = await trainerCall("submission", { sid: st.id, day: day.tag, act: item.id }); }
-  catch (e) { body.replaceChildren(el("p", { class: "bad" }, e.message)); return; }
+  const cache = {};
+  async function load(attempt) {
+    let d = cache[attempt || "latest"];
+    if (!d) {
+      try { d = await trainerCall("submission", { sid: st.id, day: day.tag, act: item.id, attempt }); }
+      catch (e) { body.replaceChildren(el("p", { class: "bad" }, e.message)); return; }
+      cache[attempt || "latest"] = d;
+    }
+    render(d);
+  }
+  function history(d) {
+    const h = d.history || [];
+    if (!h.length) return "";
+    const cur = d.final ? d.final.attempt || d.final.attempts : 0;
+    const fmt = (x) => {
+      const graded = !Number(x.manualMax) || (x.manual !== "" && x.manual != null);
+      const pts = Number(x.auto || 0) + Number(x.manual || 0), max = Number(x.autoMax || 0) + Number(x.manualMax || 0);
+      return graded ? `${round(pts)}/${round(max)}` : `${round(x.auto)}/${round(x.autoMax)} + ${x.manualMax} to grade`;
+    };
+    const rows = [...h].reverse().map((x) => {
+      const tr = el("tr", { class: x.n === cur ? "on" : "", tabindex: 0, title: x.n === cur ? "Showing this attempt" : "Open this attempt" },
+        el("td", { class: "mono" }, `#${x.n}${x.n === h.length ? " (latest)" : ""}`),
+        el("td", {}, new Date(x.ts).toLocaleString()),
+        el("td", { class: "mono" }, fmt(x)),
+        el("td", {}, x.late ? el("span", { class: "tag warn" }, "LATE") : ""),
+        el("td", { class: "small" }, x.feedback || ""));
+      const go = () => { if (x.n !== cur) { body.replaceChildren(el("p", { class: "muted" }, "Loading…")); load(x.n === h.length ? undefined : x.n); } };
+      tr.addEventListener("click", go);
+      tr.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      return tr;
+    });
+    return el("div", { class: "hist" }, el("h3", {}, `Attempt history (${h.length})`),
+      el("div", { class: "histwrap" }, el("table", { class: "histtable" },
+        el("thead", {}, el("tr", {}, el("th", {}, "Attempt"), el("th", {}, "Sent"), el("th", {}, "Score"), el("th", {}, ""), el("th", {}, "Feedback"))),
+        el("tbody", {}, ...rows))),
+      h.length > 1 ? el("p", { class: "small muted" }, "Select a row to see what the student sent in that attempt.") : "");
+  }
+  load();
+  function render(d) {
   const rec = d.final || d.live;
   if (!rec) { body.replaceChildren(el("p", {}, "No work yet.")); return; }
   const payload = rec.payload || {};
   const act = day.activities.find((a) => a.id === item.id);
+  const older = d.final && d.final.latest === false;
   const kids = [el("p", { class: "small muted" },
-    (d.final ? `Final submission ${new Date(d.final.ts).toLocaleString()} · attempt ${d.final.attempts}` : "Not submitted yet") +
-    (d.live ? ` · live work saved ${timeAgo(d.live.updated)}` : ""))];
+    (d.final ? `${older ? "Attempt" : "Final submission"} ${new Date(d.final.ts).toLocaleString()} · attempt ${d.final.attempt || d.final.attempts} of ${d.final.attempts}` : "Not submitted yet") +
+    (d.live ? ` · live work saved ${timeAgo(d.live.updated)}` : "")), history(d)];
+  if (older) kids.push(el("p", { class: "note" }, `You are looking at an older attempt (#${d.final.attempt}). Grades and feedback go on the latest attempt.`));
   if (item.id === "quiz") {
     const res = d.final && d.final.detail ? d.final.detail.items || {} : {};
     kids.push(el("h3", {}, `Score ${d.final ? d.final.auto + " / " + d.final.autoMax : "—"}`));
@@ -1369,7 +1407,7 @@ async function openDetail(st, day, item, s, l) {
     }
     // grading form
     const manual = act.parts.filter((p) => p.manual);
-    if (manual.length && d.final) {
+    if (manual.length && d.final && !older) {
       const g = el("form", { class: "form grade" });
       g.innerHTML = `<h3>Grade the written answers (${manual.reduce((s, p) => s + p.points, 0)} pts)</h3>
         <label>Points for the written part <input name="pts" type="number" step="0.5" min="0" max="${manual.reduce((s, p) => s + p.points, 0)}" value="${d.final.manual ?? ""}"></label>
@@ -1400,6 +1438,7 @@ async function openDetail(st, day, item, s, l) {
     }
   }
   body.replaceChildren(...kids);
+  }
 }
 
 function exportCsv(data, n) {

@@ -667,3 +667,14 @@ pre.answer.mono { font-family: Consolas, "Cascadia Mono", monospace; }
   .plogrow > div:last-child { grid-column: 1 / -1; }
   .plogrow .tag { justify-self: end; }
 }
+
+/* trainer detail: attempt history */
+.hist { margin: 4px 0 12px; }
+.hist h3 { margin-bottom: 6px; }
+.histwrap { overflow-x: auto; border: 1px solid var(--line); }
+.histtable { border-collapse: collapse; width: 100%; font-size: 12.5px; background: var(--panel); }
+.histtable th { background: var(--head); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-align: left; padding: 5px 8px; }
+.histtable td { border-top: 1px solid var(--line); padding: 6px 8px; white-space: nowrap; cursor: pointer; }
+.histtable td:last-child { white-space: normal; min-width: 140px; }
+.histtable tr:hover td { background: var(--panel-2); }
+.histtable tr.on td { background: var(--accent-soft); cursor: default; font-weight: 600; }
