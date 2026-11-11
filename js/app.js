@@ -1211,7 +1211,12 @@ async function viewTrainer() {
   const videoBtn = el("button", { class: "btn small", type: "button", title: "Google Drive link of this day's demo video" }, icon("play"), "Video link");
   const exportBtn = el("button", { class: "btn small", type: "button", title: "This day's scores as a CSV file" }, icon("download"), "Export CSV");
   const gradesBtn = el("button", { class: "btn small", type: "button", title: "Every day's final scores in one file (for Classroom / TESDA records)" }, icon("download"), "Export grades");
-  const queueBtn = el("button", { class: "btn small primary", type: "button", title: "Everything waiting for your grade, all days" }, "To grade");
+  const queueBtn = el("button", { class: "btn small", type: "button", title: "Open the next submission that needs your grade (amber cells)" }, "Grade next");
+  const baseTitle = document.title;
+  onLeave(() => { document.title = baseTitle; });
+  let prevPending = null;                          // pending keys at the last refresh (to spot new arrivals)
+  const arrivals = new Set(), justGraded = new Set();
+  const pkey = (x) => `${x.id}|${x.day}|${x.act}`;
   const settings = el("button", { class: "btn small icon", type: "button", title: "Board settings", "aria-label": "Board settings" }, icon("gear"));
   const logout = el("button", { class: "btn small", type: "button", title: "Log out of the trainer board on this browser" }, icon("logout"), "Log out");
   logout.addEventListener("click", trainerLogout);
@@ -1227,43 +1232,37 @@ async function viewTrainer() {
   const pendingList = () => data.subs.filter((x) => Number(x.manualMax) > 0 && (x.manual === "" || x.manual == null))
     .sort((a, b) => new Date(a.ts) - new Date(b.ts));
   const dayNum = (tag) => Number(String(tag).replace(/\D/g, ""));
+  /** Next item to grade after x: same activity first (grading one question across the class), then the same day, then any day. */
+  const nextAfter = (x) => {
+    const q = pendingList().filter((y) => !x || pkey(y) !== pkey(x));
+    return (x && (q.find((y) => y.day === x.day && y.act === x.act) || q.find((y) => y.day === x.day))) || q[0] || null;
+  };
+  /** Options for the detail popup: Save / Save & next, and the table updates at once after a grade. */
+  const gradeOpts = (x) => (!x ? {} : {
+    nextCount: () => pendingList().filter((y) => pkey(y) !== pkey(x)).length,
+    onGraded: (goNext, ids) => {
+      (ids || [x.id]).forEach((id) => { const k = `${id}|${x.day}|${x.act}`; justGraded.add(k); arrivals.delete(k); setTimeout(() => justGraded.delete(k), 2500); });
+      render();
+      setTimeout(() => refresh(true), 1200);                      // then sync with the server
+      if (!goNext) return;
+      const nx = nextAfter(x);
+      if (nx) gradeFrom(nx); else toast("Everything is graded.", "good");
+    },
+  });
   async function gradeFrom(x) {
     const st = data.roster.find((r) => r.id === x.id) || { id: x.id, name: x.id };
     const day = await getDay(dayNum(x.day));
+    if (String(day.day) !== String(daySel.value)) { daySel.value = String(day.day); store.set("dal3_board_day", daySel.value); await render(); }
     const it = x.act === "quiz" ? { id: "quiz", title: day.quiz.title } : { id: x.act, title: (day.activities.find((a) => a.id === x.act) || {}).title || "" };
     const lv = data.live.find((l) => l.id === x.id && l.day === x.day && l.act === x.act);
-    const left = pendingList().length;
-    openDetail(st, day, it, x, lv, {
-      queueInfo: `${left} waiting for a grade`,
-      onGraded: () => {
-        render();
-        const next = pendingList()[0];
-        if (next) gradeFrom(next); else { toast("Everything is graded.", "good"); refresh(); }
-      },
-    });
+    arrivals.delete(pkey(x));
+    openDetail(st, day, it, x, lv, gradeOpts(x));
   }
-  async function openQueue() {
-    const q = pendingList();
+  /** "Grade next": the oldest waiting item of the day on screen, else of any day (the board switches to that day). */
+  function openQueue() {
+    const cur = `day${String(daySel.value).padStart(2, "0")}`, q = pendingList();
     if (!q.length) return toast("Nothing is waiting for a grade.", "good");
-    const idx = await getIndex();
-    const title = (x) => {
-      const d = idx.days.find((d) => d.tag === x.day);
-      return x.act === "quiz" ? `Day ${dayNum(x.day)} quiz` : `${x.act} ${((d && d.activities.find((a) => a.id === x.act)) || {}).title || ""}`;
-    };
-    const rows = q.map((x) => {
-      const st = data.roster.find((r) => r.id === x.id) || { name: x.id };
-      const b = el("button", { class: "row qrow", type: "button" },
-        el("div", {}, el("div", { class: "title" }, `${st.name}`, el("span", { class: "muted mono" }, `  ${x.id}`)),
-          el("div", { class: "sub" }, `Day ${dayNum(x.day)} · ${title(x)}`)),
-        el("div", { class: "qtags" }, x.link ? el("span", { class: "tag warn" }, "SHARED FILE") : "", x.partner ? el("span", { class: "tag info" }, "PAIR/GROUP") : "",
-          x.late ? el("span", { class: "tag" }, "LATE") : ""),
-        el("div", { class: "when small muted" }, timeAgo(x.ts)));
-      b.addEventListener("click", () => { m.close(); gradeFrom(x); });
-      return b;
-    });
-    const start = el("button", { class: "btn primary", type: "button", onclick: () => { m.close(); gradeFrom(q[0]); } }, "Start grading (oldest first)");
-    const m = modal(`To grade: ${q.length}`, el("div", {}, el("p", { class: "small muted" }, "Written answers and shared Google Sheets / Excel files waiting for your grade, all days. " +
-      "After you save a grade, the next one opens by itself."), el("div", { class: "btnrow" }, start), el("div", { class: "list qlist" }, ...rows)), { wide: true });
+    gradeFrom(q.find((y) => y.day === cur) || q[0]);
   }
   /** Student tools: unlock activities for this student only, and clear a sign-in lock. */
   async function studentTools(st) {
@@ -1415,6 +1414,16 @@ async function viewTrainer() {
       if (pendingSwitch) fresh.config = data ? data.config : fresh.config;   // never undo a switch that is still saving
       data = fresh;
       boardData = fresh;
+      const keys = new Set(pendingList().map(pkey));
+      if (prevPending) {
+        const added = pendingList().filter((x) => !prevPending.has(pkey(x)));
+        added.forEach((x) => arrivals.add(pkey(x)));
+        if (added.length === 1) {
+          const x = added[0], st = data.roster.find((r) => r.id === x.id) || { name: x.id };
+          toast(`${st.name} submitted ${x.act === "quiz" ? "the quiz" : x.act} (Day ${dayNum(x.day)}): it needs your grade.`, "good");
+        } else if (added.length > 1) toast(`${added.length} new submissions need your grade.`, "good");
+      }
+      prevPending = keys;
       live.textContent = `Live · updated ${new Date().toLocaleTimeString()}`;
       live.className = "livedot";
       render();
@@ -1473,10 +1482,19 @@ async function viewTrainer() {
 
     const sub = indexBy(data.subs.filter((s) => s.day === tag), (s) => `${s.id}|${s.act}`);
     const lv = indexBy(data.live.filter((s) => s.day === tag), (s) => `${s.id}|${s.act}`);
-    const thead = el("tr", {}, el("th", {}, "Student"), ...items.map((it) => el("th", { title: it.title }, it.id === "quiz" ? "Quiz" : it.id)), el("th", {}, "Total"), el("th", {}, "Last active"));
-    const nPend = pendingList().length;
-    queueBtn.textContent = nPend ? `To grade (${nPend})` : "To grade";
+    const pend = pendingList(), nPend = pend.length;
+    const perAct = {}, perDay = {};
+    for (const x of pend) { perDay[x.day] = (perDay[x.day] || 0) + 1; if (x.day === tag) perAct[x.act] = (perAct[x.act] || 0) + 1; }
+    const thead = el("tr", {}, el("th", {}, "Student"), ...items.map((it) => el("th", { title: it.title + (perAct[it.id] ? ` · ${perAct[it.id]} waiting for your grade` : "") },
+      it.id === "quiz" ? "Quiz" : it.id, perAct[it.id] ? el("span", { class: "gbadge" }, perAct[it.id]) : "")), el("th", {}, "Total"), el("th", {}, "Last active"));
+    queueBtn.replaceChildren(nPend ? `Grade next` : "Nothing to grade", nPend ? el("span", { class: "gcount" }, nPend) : "");
     queueBtn.classList.toggle("primary", !!nPend);
+    queueBtn.disabled = !nPend;
+    document.title = (nPend ? `(${nPend}) ` : "") + baseTitle;
+    for (const o of daySel.options) {
+      const d = idx.days.find((x) => String(x.day) === o.value), n = perDay[d.tag] || 0;
+      o.textContent = `Day ${d.day}: ${d.title}` + (n ? ` · ${n} to grade` : "");
+    }
     const nameOf = (id) => (data.roster.find((r) => r.id.toUpperCase() === String(id).toUpperCase()) || { name: id }).name;
     const hm = (t) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const rows = data.roster.map((st) => {
@@ -1492,11 +1510,13 @@ async function viewTrainer() {
           const graded = !s.manualMax || (s.manual !== "" && s.manual != null);
           const pts = Number(s.auto) + Number(s.manual || 0), max = Number(s.autoMax) + Number(s.manualMax || 0);
           total += pts;
-          txt = `${round(pts)}/${round(max)}${graded ? "" : "*"}`;
+          txt = `${round(pts)}/${round(max)}`;
           cls = pts / Math.max(1, max) >= 0.8 ? "good" : pts / Math.max(1, max) >= 0.5 ? "half" : "bad";
-          if (!graded && !Number(s.autoMax)) { txt = "TO GRADE"; cls = "pend"; }    // all-written activity: not a fail, just waiting
+          if (!graded) { cls = "needgrade"; if (!Number(s.autoMax)) txt = "GRADE"; }   // waiting for the trainer: amber, not a fail
+          if (arrivals.has(`${st.id}|${tag}|${it.id}`)) cls += " arrived";
+          if (justGraded.has(`${st.id}|${tag}|${it.id}`)) cls += " justgraded";
           if (s.late) txt += " LATE";
-          title = (first ? `Started ${hm(first)} · ` : "") + `Submitted ${timeAgo(s.ts)} · attempt ${s.attempts}` + (graded ? "" : " · needs grading") +
+          title = (graded ? "" : "NEEDS YOUR GRADE: click to grade · ") + (first ? `Started ${hm(first)} · ` : "") + `Submitted ${timeAgo(s.ts)} · attempt ${s.attempts}` +
             (s.partner ? ` · with ${s.partner.split(",").map(nameOf).join(", ")}` : "") + (s.link ? " · shared a Google Sheets / Excel file" : "");
         } else if (l) {
           const fresh = Date.now() - new Date(l.updated).getTime() < 3 * 60000;
@@ -1508,7 +1528,12 @@ async function viewTrainer() {
         }
         if (acc[it.id] && !en[it.id]) { cls += " unl"; title = (title ? title + " · " : "") + "Unlocked for this student only"; }
         const td = el("td", { class: cls, title }, txt);
-        if (s || l) { td.tabIndex = 0; td.addEventListener("click", () => openDetail(st, day, it, s, l)); }
+        if (s || l) {
+          td.tabIndex = 0;
+          const open = () => { arrivals.delete(`${st.id}|${tag}|${it.id}`); openDetail(st, day, it, s, l, gradeOpts(s)); };
+          td.addEventListener("click", open);
+          td.addEventListener("keydown", (e) => { if (e.key === "Enter") open(); });
+        }
         return td;
       });
       const locked = (data.locked || []).includes(st.id);
@@ -1520,7 +1545,7 @@ async function viewTrainer() {
     });
     table.replaceChildren(el("table", { class: "boardtable" }, el("thead", {}, thead), el("tbody", {}, ...rows)));
     legend.replaceChildren(el("span", { class: "lg-good" }, "80% or more"), el("span", { class: "lg-half" }, "50–79%"), el("span", { class: "lg-bad" }, "Below 50%"),
-      el("span", { class: "lg-draft" }, "Working now: % of auto-checked points correct"), el("span", { class: "lg-pend" }, "* or TO GRADE: written answers need your grade"),
+      el("span", { class: "lg-draft" }, "Working now: % of auto-checked points correct"), el("span", { class: "lg-need" }, "Amber = needs your grade (click it). The number on a column = how many are waiting"),
       el("span", {}, "LATE: submitted after you closed it"), el("span", { class: "lg-unl" }, "Unlocked for this student only"),
       el("span", {}, "OPENED: started, nothing saved yet"), el("span", {}, "Select a cell to open the student's work; select a name to unlock activities for one student"));
   }
@@ -1569,7 +1594,7 @@ function trainerSettings() {
 let boardData = null;                       // the trainer board's latest data (roster, subs) for the detail popup
 async function openDetail(st, day, item, s, l, opts = {}) {
   const body = el("div", { class: "detail" }, el("p", { class: "muted" }, "Loading…"));
-  const m = modal(`${st.name} · ${item.id === "quiz" ? "Quiz" : "Activity " + item.id}` + (opts.queueInfo ? ` · ${opts.queueInfo}` : ""), body, { wide: true });
+  const m = modal(`${st.name} · ${item.id === "quiz" ? "Quiz" : "Activity " + item.id}`, body, { wide: true });
   const nameOf = (id) => ((boardData && boardData.roster.find((r) => r.id.toUpperCase() === String(id).toUpperCase())) || { name: id }).name;
   const idOf = (id) => ((boardData && boardData.roster.find((r) => r.id.toUpperCase() === String(id).toUpperCase())) || { id }).id;
   const cache = {};
@@ -1691,16 +1716,19 @@ async function openDetail(st, day, item, s, l, opts = {}) {
     const gradeMax = Math.max(Number(d.final && d.final.manualMax) || 0, writtenMax);
     if (gradeMax && d.final && !older) {
       const what = gradeMax > writtenMax ? "the written answers and the linked workbook" : "the written answers";
-      const g = el("form", { class: "form grade" });
+      const g = el("form", { class: "form grade" + (d.final.manual === "" || d.final.manual == null ? " sticky" : "") });
+      const left = opts.nextCount ? opts.nextCount() : 0;
       g.innerHTML = `<h3>Grade ${what} (${gradeMax} pts)</h3>
         <label>Points for this part <input name="pts" type="number" step="0.5" min="0" max="${gradeMax}" value="${d.final.manual ?? ""}"></label>
         <label>Feedback to the student <textarea name="fb" rows="2">${esc(d.final.feedback || "")}</textarea></label>
         ${partners.length ? `<label class="chk"><input type="checkbox" name="together" checked> Give the same points and feedback to ${esc(partners.map((p) => nameOf(p)).join(", "))}</label>` : ""}
-        <button class="btn primary" type="submit">${opts.onGraded ? "Save grade &amp; next" : "Save grade"}</button>`;
+        <div class="btnrow">${opts.onGraded && left ? `<button class="btn primary" type="submit" name="next">Save &amp; next <span class="small">(${left} more)</span></button>
+          <button class="btn" type="submit" name="save">Save</button>` : `<button class="btn primary" type="submit" name="save">Save grade</button>`}</div>`;
       g.addEventListener("submit", async (e) => {
         e.preventDefault();
-        const btn = g.querySelector("button[type=submit]");
-        btn.disabled = true;
+        const goNext = !!(e.submitter && e.submitter.name === "next");
+        g.querySelectorAll("button[type=submit]").forEach((b) => { b.disabled = true; });
+        const btn = { set disabled(v) { g.querySelectorAll("button[type=submit]").forEach((b) => { b.disabled = v; }); } };
         const also = partners.length && g.together && g.together.checked ? partners.map(idOf) : [];
         try {
           const r = await trainerCall("grade", { sid: st.id, day: day.tag, act: item.id, manual: Number(g.pts.value), feedback: g.fb.value, alsoSids: also });
@@ -1711,7 +1739,7 @@ async function openDetail(st, day, item, s, l, opts = {}) {
             if (x) { x.manual = Math.min(Number(g.pts.value) || 0, Number(x.manualMax) || 0); x.feedback = g.fb.value; }
           }
           m.close();
-          if (opts.onGraded) opts.onGraded();
+          if (opts.onGraded) opts.onGraded(goNext, r.graded);
         } catch (err) { toast(err.message, "bad"); btn.disabled = false; }
       });
       kids.push(g);

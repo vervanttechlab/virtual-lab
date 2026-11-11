@@ -723,3 +723,18 @@ pre.answer.mono { font-family: Consolas, "Cascadia Mono", monospace; }
 /* code examples in lessons / instructions: wrap long SQL lines on narrow screens instead of cutting them off */
 .prose pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel-2); border: 1px solid var(--line); padding: 8px 10px; border-radius: 4px; }
 .prose pre code { display: block; white-space: inherit; border: 0; background: none; padding: 0; word-break: normal; overflow-wrap: anywhere; }
+
+/* grading in the board table */
+.boardtable td.needgrade { background: var(--warn-bg); color: var(--warn); font-weight: 700; box-shadow: inset 0 0 0 2px var(--warn); position: relative; }
+.boardtable td.needgrade::after { content: ""; position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.boardtable td.needgrade.arrived { animation: gpulse 1.4s ease-in-out infinite; }
+@keyframes gpulse { 50% { box-shadow: inset 0 0 0 4px var(--warn); } }
+.boardtable td.justgraded { animation: gdone 2.4s ease-out 1; }
+@keyframes gdone { 0%, 40% { background: var(--good); color: #fff; } }
+.boardtable thead th .gbadge, .btn .gcount { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: var(--warn); color: #fff;
+  font: 700 11px/18px var(--ui); text-align: center; letter-spacing: 0; }
+.btn.primary .gcount { background: #fff; color: var(--accent); }
+.legend .lg-need::before { background: var(--warn-bg); border-color: var(--warn); }
+.detail .grade.sticky { position: sticky; bottom: 0; z-index: 3; box-shadow: 0 -6px 16px rgba(0, 0, 0, .12); }
+.detail .grade .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (prefers-reduced-motion: reduce) { .boardtable td.needgrade.arrived, .boardtable td.justgraded { animation: none; } }
