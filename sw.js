@@ -1,5 +1,5 @@
 // Offline support: cache the app shell and day data; the Apps Script API is never cached.
-const VERSION = "dal3-lab-v39";
+const VERSION = "dal3-lab-v42";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css",
   "js/app.js", "js/api.js", "js/config.js", "js/ui.js", "js/workbook.js", "js/grid.js", "js/stats.js",
@@ -20,6 +20,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;     // API calls go straight to the network
+  if (url.pathname.includes("/video/")) return;           // lesson clips stream straight from the network (range requests, not cached)
   // Network first for data and code (so updates arrive), cache as the offline fallback.
   // cache: "no-cache" makes the browser re-check each file with GitHub (a cheap 304 when unchanged), so an update can
   // never mix a new index.html with old modules from the browser's 10-minute HTTP cache.

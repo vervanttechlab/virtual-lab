@@ -46,6 +46,7 @@ const P = {
   list: '<path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h1M2.5 8h1M2.5 12h1"/>',
   logout: '<path d="M6.5 2.5h-4v11h4M10 5l3 3-3 3M13 8H6"/>',
   quiz: '<rect x="2.5" y="2.5" width="11" height="11"/><path d="m5 6 1 1 2-2M5 10.5l1 1 2-2M9.5 6.5h2M9.5 11h2"/>',
+  users: '<circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.5c.4-2.6 2-3.9 4.2-3.9s3.8 1.3 4.2 3.9"/><circle cx="11.3" cy="6" r="1.9"/><path d="M11 9.7c1.8 0 3 1.1 3.3 3.3"/>',
   home: '<path d="M2.5 7.5 8 2.5l5.5 5M4 6.5v7h3v-4h2v4h3v-7"/>',
   user: '<circle cx="8" cy="5.5" r="2.8"/><path d="M2.5 14c.6-3 2.8-4.5 5.5-4.5s4.9 1.5 5.5 4.5"/>',
 };

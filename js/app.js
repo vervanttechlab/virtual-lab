@@ -59,7 +59,7 @@ async function loadConfig(force) {
   if (cached && !force && Date.now() - cached.at < 15000) return cached;
   try {
     const r = await call("config");
-    const v = { enabled: r.enabled, unlocked: r.unlocked || {}, results: r.results || {}, links: r.links || {}, redo: r.redo || {}, at: Date.now() };
+    const v = { enabled: r.enabled, unlocked: r.unlocked || {}, results: r.results || {}, links: r.links || {}, redo: r.redo || {}, team: r.team || null, shares: r.shares || [], at: Date.now() };
     store.set(ck, v);
     return v;
   } catch (e) {
@@ -70,6 +70,38 @@ async function loadConfig(force) {
   }
 }
 const isOpen = (cfg, tag, item) => !cfg.enabled || !!(cfg.enabled[tag] && cfg.enabled[tag][item]);
+// ---- teams: chat + shared work (the trainer makes the teams)
+const chatSeenKey = () => `dal3_chatseen_${uid()}`;
+/** Unread team chat (someone else wrote after I last opened the Team page) + work shared with me. */
+function teamNotices(cfg) {
+  const t = cfg && cfg.team;
+  const unread = !!(t && t.lastChatAt && t.lastChatAt > (store.get(chatSeenKey(), 0) || 0));
+  const shares = (cfg && cfg.shares) || [];
+  return { unread, shares, count: shares.length + (unread ? 1 : 0) };
+}
+const shareHref = (x) => `#/act/${Number(String(x.day).replace(/\D/g, ""))}/${x.act}/share/${x.id}`;
+/** Every 45 s while a student uses the app: new chat or shared work updates the menu badges (and tells them once). */
+let pulseTimer = null, pulseKnown = null;
+function startPulse() {
+  if (pulseTimer || demoMode()) return;
+  const tick = async () => {
+    if (document.visibilityState !== "visible" || !session.get() || isTrainerView() || location.hash.startsWith("#/team")) return;
+    try {
+      const r = await call("myTeam", { since: Date.now() }, { quiet: true });
+      const k = `dal3_cfg_${uid()}`, c = store.get(k);
+      if (!c) return;
+      const before = new Set((c.shares || []).map((x) => x.id));
+      c.shares = r.shares || []; c.team = r.team || null;
+      store.set(k, c);
+      const fresh = c.shares.filter((x) => !before.has(x.id) && !(pulseKnown && pulseKnown.has(x.id)));
+      pulseKnown = new Set(c.shares.map((x) => x.id));
+      if (fresh.length) toast(`${fresh[0].fromName} shared Activity ${fresh[0].act} with you. Open it from My team.`, "good");
+      refreshNav();
+    } catch { /* offline: try again next time */ }
+  };
+  pulseTimer = setInterval(tick, 45000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tick(); });
+}
 /** Activities the trainer returned to this student for a redo: [{tag, act, at, note}], oldest first. */
 const redoList = (cfg) => Object.entries((cfg && cfg.redo) || {}).flatMap(([tag, acts]) => Object.entries(acts).map(([act, r]) => ({ tag, act, ...r })))
   .sort((a, b) => new Date(a.at) - new Date(b.at));
@@ -123,7 +155,7 @@ function shell(title, back, ...body) {
     const last = i === trail.length - 1, href = !last && crumbHref(t);
     return [i ? el("span", { class: "sep" }, "/") : "", href ? el("a", { href }, t) : el("span", { class: last ? "cur" : "" }, t)];
   }));
-  const backLabel = back === "#/" ? "Home" : (back || "").replace(/^#\/day\/(\d+).*$/, "Day $1").replace(/^#\/lesson\/(\d+).*$/, "Lesson");
+  const backLabel = back === "#/" ? "Home" : back === "#/trainer" ? "Board" : (back || "").replace(/^#\/day\/(\d+).*$/, "Day $1").replace(/^#\/lesson\/(\d+).*$/, "Lesson");
   const head = el("header", { class: "titlebar" },
     back ? el("a", { class: "tb-btn tb-back", href: back, title: `Back to ${backLabel}` }, icon("back"), el("span", {}, backLabel)) : "",
     el("a", { class: "tb-btn brand", href: "#/" }, "DAL3 LAB"),
@@ -139,6 +171,8 @@ function shell(title, back, ...body) {
   if (!student) app.replaceChildren(head, main);
   else {
     const rail = work || !!store.get("dal3_rail", false);
+    navState = { rail, work };
+    startPulse();
     const body_ = el("div", { class: "appbody" + (rail ? " rail" : "") }, sideNav(rail, work), main);
     document.body.classList.toggle("snav-rail", rail);
     app.replaceChildren(head, body_, work ? "" : bottomNav());
@@ -148,6 +182,13 @@ function shell(title, back, ...body) {
 }
 
 // ------------------------------------------------------------------ student navigation: sidebar (PC/tablet) + bottom tabs (phone)
+let navState = { rail: false, work: false };
+/** Redraw the menus (new badges) without reloading the page. */
+function refreshNav() {
+  const a = document.querySelector(".sidenav"), b = document.querySelector(".bnav");
+  if (a) a.replaceWith(sideNav(navState.rail, navState.work));
+  if (b) b.replaceWith(bottomNav());
+}
 const hashDay = () => { const m = location.hash.match(/^#\/(?:day|lesson|sheet|sql|act|quiz|files)\/(\d+)/); return m ? Number(m[1]) : null; };
 const navCfg = () => store.get(`dal3_cfg_${uid()}`) || null;
 /** The day to send a student to: the one they are on, else the latest day with something open, else Day 1 of the list. */
@@ -184,7 +225,9 @@ function sideNav(rail, work) {
       el("span", { class: "sn-av" }, initials), el("span", { class: "sn-t" }, el("b", {}, s.name || s.id || ""), el("span", { class: "muted" }, s.id && s.name ? s.id : ""))),
     el("nav", { class: "sn-main" },
       link("#/", "home", "Home", h === "#/" || h === "#" || h === ""),
-      demoMode() ? "" : link("#/progress", "chart", "My progress", h.startsWith("#/progress"), ng ? el("span", { class: "sn-dot", title: `${ng} new grade(s)` }, String(ng)) : "")),
+      demoMode() ? "" : link("#/progress", "chart", "My progress", h.startsWith("#/progress"), ng ? el("span", { class: "sn-dot", title: `${ng} new grade(s)` }, String(ng)) : ""),
+      demoMode() ? "" : (() => { const tn = teamNotices(cfg); return link("#/team", "users", "My team", h.startsWith("#/team"),
+        tn.count ? el("span", { class: "sn-dot", title: "New team messages or shared work" }, String(tn.shares.length || "•")) : ""); })()),
     days.length ? el("div", { class: "sn-label sn-t" }, "Training days") : "",
     el("nav", { class: "sn-days", "aria-label": "Training days" }, ...dayRows),
     el("div", { class: "sn-foot" },
@@ -199,6 +242,7 @@ function bottomNav() {
   return el("nav", { class: "bnav", "aria-label": "Lab menu" },
     tab("#/", "home", "Home", h === "#/" || h === "#" || h === ""),
     n ? tab(`#/day/${n}`, "list", `Day ${n}`, !!hashDay()) : "",
+    demoMode() ? "" : tab("#/team", "users", "Team", h.startsWith("#/team"), teamNotices(cfg).shares.length || (teamNotices(cfg).unread ? "•" : 0)),
     demoMode() ? "" : tab("#/progress", "chart", "Progress", h.startsWith("#/progress"), ng),
     tab(null, "user", "Account"));
 }
@@ -307,7 +351,7 @@ async function withConfig(render) {
     return;
   }
   loadConfig(true).then(async (fresh) => {
-    const sig = (c) => JSON.stringify([c.enabled, c.results, c.links, c.redo]);
+    const sig = (c) => JSON.stringify([c.enabled, c.results, c.links, c.redo, c.shares, c.team && c.team.members]);
     if (location.hash !== here || sig(fresh) === sig(cached)) return;
     const y = window.scrollY;
     await render(fresh);
@@ -338,6 +382,14 @@ async function viewHome() {
         const ng = demoMode() ? [] : newGrades(cfg);
         return ng.length ? el("a", { class: "newgrades", href: "#/progress" }, el("span", { class: "dot" }),
           el("span", {}, el("b", {}, `${ng.length} new ${ng.length === 1 ? "grade" : "grades"} or feedback`), " from your trainer"), el("span", { class: "go" }, "View", icon("chev"))) : "";
+      })(),
+      (() => {
+        const sh = (cfg.shares || [])[0];
+        if (!sh) return "";
+        const more = cfg.shares.length - 1;
+        return el("a", { class: "redobanner sharebanner", href: shareHref(sh) }, icon("users"),
+          el("span", {}, el("b", {}, `${sh.fromName} shared Activity ${sh.act} with you`), el("span", { class: "nt" }, sh.note ? `“${sh.note}”` : more ? `and ${more} more in My team` : "Open it to use it or review it")),
+          el("span", { class: "go" }, "Open", icon("chev")));
       })(),
       (() => {
         const rl = redoList(cfg);
@@ -615,6 +667,86 @@ async function viewProgress() {
   }
 }
 
+// ------------------------------------------------------------------ my team: members, chat, work shared with me
+async function viewTeam() {
+  const body = el("div", { class: "teampage" }, el("p", { class: "muted" }, "Loading your team…"));
+  shell("My team", "#/", el("div", { class: "pagehead" }, el("div", { class: "kicker" }, "Data Analytics Level III"), el("h2", {}, "My team")), body);
+  if (demoMode()) return body.replaceChildren(el("p", { class: "note" }, "Demo mode: teams need the class server."));
+  const me = (session.get() || {}).id || "";
+  let last = 0, team = null, shares = [];
+  const list = el("div", { class: "chatlist", role: "log", "aria-live": "polite" });
+  const input = el("textarea", { class: "chatin", rows: 1, maxlength: 1000, placeholder: "Message your team…", "aria-label": "Message" });
+  const send = el("button", { class: "btn primary", type: "submit" }, "Send");
+  const form = el("form", { class: "chatform" }, input, send);
+  const msgEl = (m) => el("div", { class: "msg" + (m.from.toUpperCase() === me.toUpperCase() ? " mine" : m.from === "TRAINER" ? " trainer" : "") },
+    el("div", { class: "who" }, m.from.toUpperCase() === me.toUpperCase() ? "You" : m.name, el("span", { class: "t" }, timeAgo(m.at))), el("div", { class: "txt" }, m.text));
+  const add = (msgs) => {
+    if (!msgs.length) return;
+    const atEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+    list.querySelector(".empty")?.remove();
+    for (const m of msgs) { list.append(msgEl(m)); last = Math.max(last, m.at); }
+    if (atEnd || msgs.some((m) => m.from.toUpperCase() === me.toUpperCase())) list.scrollTop = list.scrollHeight;
+    store.set(chatSeenKey(), Math.max(last, Date.now()));
+  };
+  const shareBox = el("div", { class: "sharelist" });
+  const drawShares = () => {
+    shareBox.replaceChildren(...(shares.length ? shares.map((x) => {
+      const dismiss = el("button", { class: "btn small", type: "button" }, "Dismiss");
+      dismiss.addEventListener("click", async () => {
+        dismiss.disabled = true;
+        try { await call("shareStatus", { shareId: x.id, status: "dismissed" }); shares = shares.filter((y) => y.id !== x.id); drawShares(); syncCfg(); }
+        catch (e) { toast(e.message, "bad"); dismiss.disabled = false; }
+      });
+      return el("div", { class: "sharecard" }, icon("users"),
+        el("div", { class: "b" }, el("b", {}, `${x.fromName} shared Activity ${x.act}`), el("div", { class: "small muted" }, `Day ${Number(x.day.replace(/\D/g, ""))} · ${timeAgo(x.at)}`),
+          x.note ? el("div", { class: "nt" }, x.note) : ""),
+        el("div", { class: "btnrow" }, dismiss, el("a", { class: "btn small primary", href: shareHref(x) }, "Open", icon("chev"))));
+    }) : [el("p", { class: "small muted" }, "Nothing shared with you right now. When a teammate shares an activity, it appears here.")]));
+  };
+  const syncCfg = () => {
+    const k = `dal3_cfg_${uid()}`, c = store.get(k);
+    if (c) { c.shares = shares; c.team = team; store.set(k, c); }
+    refreshNav();
+  };
+  const poll = async (first) => {
+    try {
+      const r = await call("myTeam", { since: last }, { quiet: !first });
+      team = r.team; shares = r.shares || [];
+      if (first) draw();
+      add(r.messages || []);
+      drawShares();
+      syncCfg();
+    } catch (e) {
+      if (first) body.replaceChildren(el("p", { class: "note" }, /unknown action/i.test(e.message) ? "Teams are not switched on yet: your trainer needs to update the lab server." :
+        e instanceof NetError ? "You are offline. Connect to see your team." : e.message));
+    }
+  };
+  const draw = () => {
+    if (!team) return body.replaceChildren(el("div", { class: "note" }, el("b", {}, "You are not in a team yet. "), "Your trainer makes the teams. When you are added, your team's chat and shared work appear here."));
+    list.replaceChildren(el("p", { class: "empty small muted" }, "No messages yet. Say hello to your team! Your trainer can read this chat too."));
+    body.replaceChildren(
+      el("div", { class: "teamhead" }, el("div", { class: "tname" }, icon("users"), team.name),
+        el("div", { class: "members" }, ...team.members.map((m) => el("span", { class: "chip" + (m.id.toUpperCase() === me.toUpperCase() ? " me" : "") }, m.id.toUpperCase() === me.toUpperCase() ? `${m.name} (you)` : m.name)))),
+      el("div", { class: "label" }, "Shared with me"), shareBox,
+      el("div", { class: "label" }, "Team chat", el("span", { class: "small muted lblnote" }, "your trainer can see this chat")),
+      el("div", { class: "chatbox" }, list, form));
+  };
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    send.disabled = true;
+    try { const r = await call("chatSend", { text }); input.value = ""; input.style.height = ""; add([r.message]); }
+    catch (err) { toast(err instanceof NetError ? "You are offline. The message was not sent." : err.message, "bad"); }
+    finally { send.disabled = false; input.focus(); }
+  });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
+  input.addEventListener("input", () => { input.style.height = ""; input.style.height = Math.min(120, input.scrollHeight) + "px"; });
+  await poll(true);
+  const t = setInterval(() => { if (document.visibilityState === "visible") poll(false); }, 5000);
+  onLeave(() => clearInterval(t));
+}
+
 async function viewDay(n) {
   const day = await getDay(n);
   return withConfig(async (cfg) => {
@@ -697,6 +829,58 @@ function videoBox(url, title, sub, chapterList, start = 0) {
     el("p", { class: "vnote" }, "If the video does not play, ", el("a", { href: url, target: "_blank", rel: "noopener" }, "open it in Google Drive"), "."));
 }
 
+/** A lesson-part video: a short clip that holds ONLY this topic, so it stops at the end of the part (no running on into the
+ *  next topic). Loads only when tapped (mobile data). At the end: Watch again / Next part. On the Demo video page the chapter
+ *  list switches clips. */
+function clipBox(first, heading, sub, { list = null, next = null } = {}) {
+  const stage = el("div", { class: "vstage" });
+  const len = (c) => fmtSec(toSec(c.end) - toSec(c.start));
+  const titleEl = el("div", { class: "vtitle" }, heading);
+  const play = el("button", { class: "vplay", type: "button", "aria-label": `Play: ${heading}` },
+    el("span", { class: "vtri" }), el("span", {}, `Play (${len(first)})`));
+  stage.append(play);
+  const rows = list ? [...list.querySelectorAll("tr[data-k]")] : [];
+  const open = (c) => {
+    if (!navigator.onLine) return toast("You are offline. Connect to the internet to watch the video.", "bad");
+    document.querySelectorAll(".vstage video").forEach((v) => v.pause());           // one player at a time
+    document.querySelectorAll(".vstage iframe").forEach((f) => {
+      const st = f.parentElement; f.remove(); st.classList.remove("on"); st.querySelector(".vplay").hidden = false;
+    });
+    stage.querySelectorAll("video, .vend").forEach((x) => x.remove());
+    play.hidden = true;
+    stage.classList.add("on");
+    if (list) { titleEl.textContent = c.title; rows.forEach((r) => r.classList.toggle("on", r.dataset.k === String(c.k))); }
+    const v = el("video", { src: c.clip, controls: true, autoplay: true, playsinline: "", preload: "auto", controlslist: "nodownload", title: c.title });
+    v.addEventListener("ended", () => {
+      const nx = list ? (c.k + 1 < allClips.length ? allClips[c.k + 1] : null) : null;
+      const again = el("button", { class: "btn", type: "button" }, icon("undo"), "Watch again");
+      again.addEventListener("click", () => open(c));
+      let go = "";
+      if (nx) { go = el("button", { class: "btn primary", type: "button" }, "Next: " + nx.title.replace(/^Chapter \d+ · /, ""), icon("chev")); go.addEventListener("click", () => open(nx)); }
+      else if (next) go = el("a", { class: "btn primary", href: next.href }, next.label, icon("chev"));
+      stage.append(el("div", { class: "vend" }, el("div", { class: "t" }, icon("check"), "End of this part"), el("div", { class: "btnrow" }, again, go)));
+    });
+    v.addEventListener("error", () => {
+      if (!v.isConnected) return;
+      const retry = el("button", { class: "btn small", type: "button" }, "Try again");
+      retry.addEventListener("click", () => open(c));
+      stage.append(el("div", { class: "vend" }, el("div", { class: "t" }, "The video could not load (weak or no connection)."), retry));
+    });
+    stage.append(v);
+    v.play().catch(() => {});
+  };
+  const allClips = list ? list.__clips : [first];
+  play.addEventListener("click", () => open(first));
+  rows.forEach((tr) => {
+    const go = () => { open(allClips[Number(tr.dataset.k)]); stage.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
+    tr.addEventListener("click", go);
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+  });
+  return el("div", { class: "vbox" },
+    el("div", { class: "vhead" }, el("div", { class: "vlabel" }, "Watch it in Excel"), titleEl, sub ? el("div", { class: "vsub" }, sub) : ""),
+    stage, list || "");
+}
+
 /** The video link for a day: the one the trainer saved on the board (Google Sheet), else the default in videos.js. */
 const videoUrl = (cfg, n) => (((cfg && cfg.links) || {})[`day${String(n).padStart(2, "0")}`] || {}).video || (VIDEOS[n] && VIDEOS[n].url) || "";
 
@@ -707,17 +891,33 @@ async function viewLesson(n, k) {
 }
 function renderLesson(n, day, cfg, k) {
   const vid = VIDEOS[n] ? { ...VIDEOS[n], url: videoUrl(cfg, n) } : null;
-  const chapterFor = (h) => vid && vid.chapters.find((c) => h.startsWith(c.part + " ") || h === c.part);
+  const partsOf = (c) => c.parts || (c.part ? [c.part] : []);
+  const chapterFor = (h) => vid && vid.chapters.find((c) => partsOf(c).some((p) => h.startsWith(p + " ") || h === p));
+  // The lab's own clips (one per part, they stop at the end of the topic), unless the trainer saved a different Drive video.
+  const useClips = !!(vid && vid.chapters.every((c) => c.clip) && (!vid.url || vid.url === VIDEOS[n].url));
   // the parts of the lesson: the demo video first (if any), then every section of the handout
   const items = [];
-  if (vid) items.push({ title: "Demo video", video: true, short: "Demo video", body: () =>
+  if (vid && useClips) items.push({ title: "Demo video", video: true, short: "Demo video", body: () => {
+    const clips = [vid.intro, ...vid.chapters].filter(Boolean).map((c, k) => ({ ...c, k }));
+    const list = el("table", { class: "vchapters" }, el("tbody", {}, ...clips.map((c) =>
+      el("tr", { "data-k": c.k, tabindex: 0, role: "button", title: `Play: ${c.title}` },
+        el("td", { class: "mono" }, el("span", { class: "vtri-sm" }), fmtSec(toSec(c.end) - toSec(c.start))), el("td", {}, c.title),
+        el("td", { class: "muted" }, partsOf(c).join(", "))))));
+    list.__clips = clips;
+    return clipBox(clips[0], clips[0].title, "The demonstration in short parts. Each part stops at its end: tap Next, or pick a part below. " +
+      "The lesson parts with a VIDEO tag play their own part.", { list });
+  } });
+  else if (vid) items.push({ title: "Demo video", video: true, short: "Demo video", body: () =>
     videoBox(vid.url, `Day ${n} demonstration: ${day.title}`, "The whole demonstration. Tap a chapter below to jump to it. The lesson parts that have a VIDEO tag also play their own chapter.",
       el("table", { class: "vchapters" }, el("tbody", {}, ...vid.chapters.slice().sort((x, y) => toSec(x.start) - toSec(y.start)).map((c) =>
         el("tr", { "data-start": toSec(c.start), tabindex: 0, role: "button", title: `Play from ${c.start}` },
           el("td", { class: "mono" }, el("span", { class: "vtri-sm" }), `${c.start}${c.end ? "–" + c.end : ""}`), el("td", {}, c.title), el("td", { class: "muted" }, c.part)))))) });
   for (const sec of day.lesson) {
     const ch = chapterFor(sec.h);
+    const idx = items.length;
     items.push({ title: sec.h, video: !!ch, short: sec.h.replace(/^Part (\d+) — /, "$1 · "), body: () => [el("div", { class: "prose", html: sec.html }),
+      ch && useClips ? clipBox(ch, ch.title, `Just this part of the demo (${fmtSec(toSec(ch.end) - toSec(ch.start))}). It stops at the end of the topic.`,
+        { next: idx + 1 < items.length ? { href: `#/lesson/${n}/${idx + 1}`, label: "Next part of the lesson" } : null }) :
       ch ? videoBox(vid.url, ch.title, `This part of the demo plays from ${ch.start}` + (ch.end ? ` and ends at ${ch.end}: stop the video there, or keep watching the next part` : "") +
         ".", null, toSec(ch.start)) : ""] });
   }
@@ -809,12 +1009,67 @@ async function viewSql(n) {
   });
   shell(`Day ${n} › SQL`, `#/day/${n}`, dayTabs(n, "sql"),
     el("p", { class: "small muted" }, "Practice any query on Aling Nena's database: the same aling_nena.db the PC students open in VS Code. Nothing you run can damage it."),
-    schemaPanel((t) => insertAtCursor(ed.textarea, t + " ")), ed);
+    schemaPanel((t) => insertAtCursor(ed.textarea, t + " "), (t) => peekTable(ed, t)), ed);
   loadSql().catch((e) => toast(e.message, "bad"));
 }
 
+const nameIn = (team, id) => (((team && team.members) || []).find((m) => m.id.toUpperCase() === String(id).toUpperCase()) || { name: id }).name;
+/** Shared work arrived: use it (then review or submit now), not now, or dismiss. Resolves "review" | "submit" | "later" | "dismiss". */
+function askUseShared(sw, act, haveOwn) {
+  return new Promise((resolve) => {
+    let done = false, m = null, iv = null;
+    const finish = (v) => { if (done) return; done = true; clearInterval(iv); m && m.close(); resolve(v); };
+    const b = (label, v, cls = "btn") => { const x = el("button", { class: cls, type: "button", name: `share-${v}` }, label); x.addEventListener("click", () => finish(v)); return x; };
+    const box = el("div", { class: "form sharebox" },
+      el("p", {}, el("b", {}, sw.fromName), ` shared their submitted answers for Activity ${act.id}, `, el("b", {}, act.title), "."),
+      sw.note ? el("p", { class: "nt" }, `“${sw.note}”`) : "",
+      haveOwn ? el("p", { class: "warnline" }, "You already have answers in this activity. Using the shared work replaces them (only for this activity).") : "",
+      el("p", { class: "small muted" }, "Your trainer sees that you used shared work, and who shared it. You can still change anything before you submit."),
+      el("div", { class: "actions" }, b("Dismiss", "dismiss"), b("Not now", "later"), b("Use it and review first", "review"), b("Use it and submit now", "submit", "btn primary")));
+    m = modal(`Shared by ${sw.fromName}: Activity ${act.id}`, box);
+    iv = setInterval(() => { if (!document.body.contains(m.box)) finish("later"); }, 400);
+  });
+}
+/** Share my submitted answers for an activity with one, some or all team members. */
+function shareDialog(team, tag, act) {
+  const me = uid().toUpperCase(), mates = (team.members || []).filter((x) => x.id.toUpperCase() !== me);
+  if (!mates.length) return toast("Your team has no other members yet.", "bad");
+  const all = el("input", { type: "checkbox", name: "all", checked: true });
+  const boxes = mates.map((x) => ({ x, i: el("input", { type: "checkbox", name: "to", value: x.id, checked: true }) }));
+  all.addEventListener("change", () => boxes.forEach((y) => { y.i.checked = all.checked; }));
+  boxes.forEach((y) => y.i.addEventListener("change", () => { all.checked = boxes.every((z) => z.i.checked); }));
+  const note = el("textarea", { name: "note", rows: 2, maxlength: 300, placeholder: "A note for them (optional)" });
+  const go = el("button", { class: "btn primary", type: "submit" }, icon("users"), "Share");
+  const f = el("form", { class: "form sharebox" },
+    el("p", { class: "small muted" }, `They get a notice and can use your submitted answers for Activity ${act.id} (and review or submit them). Your own work does not change.`),
+    el("label", { class: "choice allrow" }, all, el("span", {}, el("b", {}, "All members"), ` (${mates.length})`)),
+    el("div", { class: "partnerlist" }, ...boxes.map((y) => el("label", { class: "choice" }, y.i, el("span", {}, y.x.name, el("span", { class: "muted mono" }, `  ${y.x.id}`))))),
+    el("label", {}, "Note", note),
+    el("div", { class: "actions" }, el("button", { class: "btn", type: "button", "data-cancel": "" }, "Cancel"), go));
+  const m = modal(`Share Activity ${act.id} with my team`, f);
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const to = all.checked ? ["ALL"] : boxes.filter((y) => y.i.checked).map((y) => y.x.id);
+    if (!to.length) return toast("Choose at least one team member.", "bad");
+    go.disabled = true;
+    try {
+      const r = await call("shareWork", { day: tag, act: act.id, to, note: note.value.trim() });
+      m.close();
+      toast(`Shared with ${r.sent === mates.length ? "your whole team" : r.to.map((id) => nameIn(team, id)).join(", ")}.`, "good");
+    } catch (err) { toast(err instanceof NetError ? "You are offline. Try again when you are connected." : err.message, "bad"); go.disabled = false; }
+  });
+}
+/** "Show rows" (SQLTools: Show Table Records): put SELECT * FROM table in the box, run it and bring the result into view. */
+async function peekTable(ed, t) {
+  ed.textarea.value = `SELECT * FROM ${t} LIMIT 20;`;
+  ed.textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  await ed.run();
+  ed.scrollIntoView({ block: "start", behavior: "smooth" });
+  toast(`First 20 rows of ${t}. Run SELECT COUNT(*) FROM ${t}; to count all of them.`);
+}
+
 // ------------------------------------------------------------------ activity runner
-async function viewActivity(n, actId) {
+async function viewActivity(n, actId, shareId) {
   const day = await getDay(n);
   let cfg = await loadConfig();
   const tag = day.tag, act = day.activities.find((a) => a.id === actId);
@@ -826,6 +1081,44 @@ async function viewActivity(n, actId) {
   const ans = (allAns[actId] = allAns[actId] || {});
   const results = store.get(K.res(tag), {});
   const needsSheet = act.sheet || act.parts.some((p) => ["cells", "spec", "textcells"].includes(p.type));
+  // A teammate shared their submitted work: ask first, then put their answers (and this activity's Workbook cells) in place.
+  let afterShare = null;
+  if (shareId && !demoMode()) {
+    try {
+      const sw = await call("sharedWork", { shareId });
+      afterShare = await askUseShared(sw, act, Object.keys(ans).some((k) => !["partners", "sharedFrom"].includes(k)));
+      if (afterShare === "review" || afterShare === "submit") {
+        const pl = sw.payload || {}, sa = (pl.sub && pl.sub.answers) || {};
+        for (const k of Object.keys(ans)) delete ans[k];
+        Object.assign(ans, sa);
+        const mates = new Set([...(sa.partners || []), sw.from].map(String).filter((x) => x.toUpperCase() !== uid().toUpperCase()));
+        ans.partners = [...mates];
+        ans.sharedFrom = sw.from;
+        store.set(K.ans(tag), allAns);
+        const cellsOf = act.parts.filter((p) => p.type === "cells").flatMap((p) => p.cells);
+        if (needsSheet && (cellsOf.length || pl.wb)) {
+          const local = store.get(K.wb(tag)) || { v: 1, edits: {}, specs: {}, extra: {}, fmt: {} };
+          local.edits = { ...(local.edits || {}) };
+          for (const ref of cellsOf) { const c = (pl.sub.cells || {})[ref]; if (c && c.f !== "" && c.f != null) local.edits[ref] = c.f; else delete local.edits[ref]; }
+          const theirs = (pl.wb && pl.wb.specs) || {};
+          local.specs = { ...(local.specs || {}) };
+          for (const kind of ["charts", "analyses", "rules"]) {
+            const mine = local.specs[kind] || [], seen = new Set(mine.map((x) => JSON.stringify(x)));
+            local.specs[kind] = [...mine, ...(theirs[kind] || []).filter((x) => !seen.has(JSON.stringify(x)))];
+          }
+          if (pl.wb && pl.wb.extra) local.extra = { ...(pl.wb.extra || {}), ...(local.extra || {}) };
+          store.set(K.wb(tag), local);
+        }
+        call("shareStatus", { shareId, status: "used" }, { quiet: true }).then(() => {
+          const c = store.get(`dal3_cfg_${uid()}`);
+          if (c && c.shares) { c.shares = c.shares.filter((x) => x.id !== shareId); store.set(`dal3_cfg_${uid()}`, c); refreshNav(); }
+        }).catch(() => {});
+      } else if (afterShare === "dismiss") {
+        call("shareStatus", { shareId, status: "dismissed" }, { quiet: true }).catch(() => {});
+      }
+    } catch (e) { toast(e.message, "bad"); }
+    if (location.hash.includes("/share/")) history.replaceState(null, "", `#/act/${n}/${actId}`);
+  }
   // Nothing on this phone for an activity the student already worked on (another phone, cleared browser): bring back the last
   // saved answers and workbook from the class server, so a redo starts from their own work.
   const redo = redoOf(cfg, tag, actId);
@@ -876,6 +1169,17 @@ async function viewActivity(n, actId) {
   const hasSql = act.parts.some((p) => p.type === "sql");
   if (hasSql) {
     form.append(schemaPanel((t) => insertAtCursor(null, t + " ")));
+    loadSql().catch((e) => toast(e.message, "bad"));
+  } else if (act.sqlpad) {
+    // Explore the database here (the lab's SQLTools): tables + a practice SQL box. Not graded; the query is kept on this phone.
+    const pk = `dal3_sqlpad_${uid()}_${tag}_${actId}`;
+    const savePad = debounce((t) => store.set(pk, t), 400);
+    const pad = sqlEditor({ value: store.get(pk, ""), rows: 3, onInput: savePad, placeholder: "SELECT COUNT(*) FROM branches;" });
+    onLeave(() => savePad.flush());
+    form.append(el("div", { class: "part sqlpad", "data-part": "sqlpad" },
+      el("div", { class: "phead" }, el("span", { class: "pprompt" }, "Explore the database"), el("span", { class: "ppts" }, "practice · not graded")),
+      el("p", { class: "small muted" }, "The lab's SQLTools: open Tables to see each table's columns and keys, tap Show rows to peek at the data, and run your own queries in the box."),
+      schemaPanel((t) => insertAtCursor(pad.textarea, t + " "), (t) => peekTable(pad, t), { open: true }), pad));
     loadSql().catch((e) => toast(e.message, "bad"));
   }
   if (act.import && wb) {
@@ -1030,7 +1334,18 @@ async function viewActivity(n, actId) {
     redo.note ? el("div", { class: "nt" }, redo.note) : "",
     el("div", { class: "small" }, (restored ? "Your last submitted answers were brought back. " : "Your answers are still here. ") +
       "Change what you need, then tap Submit again." + (hasSheetWork ? " Shared a Google Sheets / Excel link? You can keep it or replace it in the Submit window." : ""))) : "";
-  const left = el("div", { class: "pane pane-task" }, redoBox, syncNote, steps, el("div", { class: "task-sec" }, el("div", { class: "label" }, "Answers"), form));
+  const shareBar = el("div", { class: "sharebar", hidden: true });
+  const drawShareBar = () => {
+    const team = (store.get(`dal3_cfg_${uid()}`) || cfg).team;
+    const submitted = !!((((cfg.results || {})[tag] || {})[actId]) || (results[actId] && results[actId].server));
+    shareBar.hidden = !(team && submitted && !demoMode());
+    if (shareBar.hidden) return;
+    const b = el("button", { class: "btn small", type: "button", name: "share" }, icon("users"), "Share with my team");
+    b.addEventListener("click", () => shareDialog(team, tag, act));
+    shareBar.replaceChildren(el("span", { class: "small" }, ans.sharedFrom ? `You used work shared by ${nameIn(team, ans.sharedFrom)}. ` : "Submitted. Help a teammate? "), b);
+  };
+  drawShareBar();
+  const left = el("div", { class: "pane pane-task" }, redoBox, shareBar, syncNote, steps, el("div", { class: "task-sec" }, el("div", { class: "label" }, "Answers"), form));
   const right = needsSheet ? el("div", { class: "pane pane-sheet" }, el("div", { class: "sheethost" })) : null;
 
   // ---- bottom bar
@@ -1126,6 +1441,8 @@ async function viewActivity(n, actId) {
     }
     ui && ui.setMarks(marks);
   }
+  if (afterShare === "submit") setTimeout(() => btnSubmit.click(), 400);
+  else if (afterShare === "review") toast("Your teammate's answers are in place. Review them, then tap Submit when you are ready.", "good");
   // ---- turn in to Google Classroom: download the answers file, then open the assignment the trainer linked
   const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
   /** The next place to go after this activity: the next OPEN activity, else the open quiz, else the Day page. */
@@ -1326,6 +1643,7 @@ async function viewActivity(n, actId) {
       const r = await sendOrQueue("submit", body, { onDoneKey: null });
       if (r.sent) {
         results[actId] = { ...(results[actId] || {}), server: r.data.result, pending: false };
+        drawShareBar();
         if (redo) {                                                     // the trainer's redo request is answered
           const c = store.get(`dal3_cfg_${uid()}`);
           if (c && c.redo && c.redo[tag]) { delete c.redo[tag][actId]; store.set(`dal3_cfg_${uid()}`, c); }
@@ -1382,6 +1700,7 @@ function buildSub(act, wb, ans) {
   for (const p of act.parts) if (ans[p.id] != null) answers[p.id] = ans[p.id];
   if (ans.worklink) answers.worklink = ans.worklink;                   // worked in Google Sheets / Excel instead
   if (ans.partners && ans.partners.length) answers.partners = ans.partners;
+  if (ans.sharedFrom) answers.sharedFrom = ans.sharedFrom;               // used work a teammate shared (the trainer sees it)
   const textcells = act.parts.filter((p) => p.type === "textcells").flatMap((p) => p.cells);
   const sub = { cells: wb ? wb.cellsFor(refs) : {}, answers, specs: wb ? wb.specs : {} };
   if (textcells.length && wb) sub.answers.insights = textcells.map((r) => String(sub.cells[r]?.v ?? "")).join("\n");
@@ -1480,7 +1799,8 @@ async function viewTrainer() {
   const settings = el("button", { class: "btn small icon", type: "button", title: "Board settings", "aria-label": "Board settings" }, icon("gear"));
   const logout = el("button", { class: "btn small", type: "button", title: "Log out of the trainer board on this browser" }, icon("logout"), "Log out");
   logout.addEventListener("click", trainerLogout);
-  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), queueBtn, videoBtn, linksBtn, exportBtn, gradesBtn, settings, logout),
+  const teamsBtn = el("a", { class: "btn small", href: "#/trainer/teams", title: "Make student teams, read their team chats" }, icon("users"), "Teams");
+  shell("Trainer board", "#/", el("div", { class: "boardbar" }, daySel, live, el("div", { class: "grow" }), queueBtn, teamsBtn, videoBtn, linksBtn, exportBtn, gradesBtn, settings, logout),
     toggles, table, legend, { __cls: "page work" });
   let data = null;
   settings.addEventListener("click", trainerSettings);
@@ -1592,23 +1912,30 @@ async function viewTrainer() {
     const stage = el("div", { class: "vstage", hidden: true });
     preview.addEventListener("click", () => {
       const src = embedUrl(input.value.trim() || v.url);
-      if (!src) return toast("Paste a Google Drive file link first.", "bad");
+      if (!src) {
+        if (!v.intro) return toast("Paste a Google Drive file link first.", "bad");
+        stage.hidden = false;                                              // no Drive copy: preview the lab's own first clip
+        stage.replaceChildren(el("video", { src: v.chapters[0].clip, controls: true, autoplay: true, playsinline: "" }));
+        return;
+      }
       stage.hidden = false;
       stage.replaceChildren(el("iframe", { src, title: "Preview", allow: "autoplay; fullscreen", allowfullscreen: true }));
     });
     const places = el("table", { class: "vchapters" }, el("tbody", {},
       el("tr", {}, el("td", { class: "mono" }, `0:00–${v.length || ""}`), el("td", {}, "Full video"), el("td", { class: "muted" }, "Top of the lesson")),
       ...v.chapters.map((c) => {
-        const sec = day.lesson.find((x) => x.h.startsWith(c.part + " ") || x.h === c.part);
+        const ps = c.parts || [c.part];
+        const secs = ps.map((pp) => day.lesson.find((x) => x.h.startsWith(pp + " ") || x.h === pp));
         return el("tr", {}, el("td", { class: "mono" }, `${c.start}–${c.end}`), el("td", {}, c.title),
-          el("td", { class: sec ? "muted" : "bad" }, sec ? sec.h : `${c.part}: section not found`));
+          el("td", { class: secs.every(Boolean) ? "muted" : "bad" }, secs.map((x, i) => (x ? x.h : `${ps[i]}: section not found`)).join(" · ")));
       })));
     f.append(el("p", { class: "hint" }, "Paste the Google Drive share link of the Day " + n + " demo video. In Drive, set it to ",
       el("b", {}, "Anyone with the link · Viewer"), " first, or students see a Google sign-in box instead of the video."),
       el("label", {}, "Google Drive link", input), check, el("div", { class: "btnrow" }, preview), stage,
       el("div", { class: "label" }, "Where it appears in the lesson"), places,
-      el("p", { class: "small muted" }, "These places and times match the current demo recording. If you upload a different recording " +
-        "with other chapter times, the times above need updating too."));
+      el("p", { class: "small muted" }, "Students watch these parts as short clips stored with the lab: each one stops at the end of its topic. " +
+        "Leave the link as it is to keep the clips. If you save a different Drive video here, the lesson plays that file instead: it starts " +
+        "at each part's time but cannot stop at its end. Re-recorded the demo? Re-run _build/make_video_clips.py instead."));
     const save = el("button", { class: "btn primary", type: "submit" }, "Save video link");
     f.append(el("div", { class: "actions" }, el("button", { class: "btn", type: "button", "data-cancel": "" }, "Cancel"), save));
     const m = modal(`Day ${n}: demo video`, f, { wide: true });
@@ -1817,6 +2144,196 @@ async function viewTrainer() {
   const t = setInterval(() => refresh(true), CONFIG.BOARD_REFRESH_SECONDS * 1000);
   onLeave(() => clearInterval(t));
 }
+// ------------------------------------------------------------------ trainer: Teams (make teams, read and write in their chats)
+async function viewTeams() {
+  if (!trainer.get()) return trainerLogin();
+  let data = { roster: [], teams: [] }, q = "", onlyFree = false;
+  const sel = new Set();                                   // selected student IDs (to put in a team)
+  const body = el("div", { class: "teamsgrid" }, el("p", { class: "muted" }, "Loading the students…"));
+  const newBtn = el("button", { class: "btn primary small", type: "button", name: "newteam" }, icon("users"), "New team");
+  const autoBtn = el("button", { class: "btn small", type: "button", name: "autoteams" }, "Make teams automatically");
+  const refreshBtn = el("button", { class: "btn small", type: "button" }, "Refresh");
+  shell("Trainer board › Teams", "#/trainer",
+    el("div", { class: "pagehead" }, el("div", { class: "kicker" }, "Trainer"), el("h2", {}, "Teams"),
+      el("div", { class: "meta" }, "Put students in teams. Each team gets its own chat (you can read and write in every team's chat), and members can share submitted work with each other.")),
+    el("div", { class: "toolrow" }, newBtn, autoBtn, refreshBtn), body, { __cls: "page narrow wide" });
+  const teamOf = (id) => data.teams.find((t) => t.members.some((m) => m.toUpperCase() === id.toUpperCase()));
+  const nameOf = (id) => (data.roster.find((r) => r.id.toUpperCase() === id.toUpperCase()) || { name: id }).name;
+  async function load() {
+    try { data = await trainerCall("teams", {}); render(); }
+    catch (e) { body.replaceChildren(el("p", { class: "note" }, /unknown action/i.test(e.message) ? "Teams need the updated lab server: paste the new Code.gs into Apps Script and deploy a new version (SETUP.md: Teams update)." : e.message)); }
+  }
+  async function save(team, members, name) {
+    try {
+      const r = await trainerCall("saveTeam", { id: team ? team.id : "", name: name ?? team.name, members });
+      data.teams = r.teams; sel.clear(); render();
+      return true;
+    } catch (e) { toast(e.message, "bad"); return false; }
+  }
+  // ---- the students: search, "not in a team", tick to select
+  const search = el("input", { type: "search", placeholder: "Search a name or ID", "aria-label": "Search students" });
+  search.addEventListener("input", () => { q = search.value.trim().toLowerCase(); render(); });
+  const free = el("input", { type: "checkbox" });
+  free.addEventListener("change", () => { onlyFree = free.checked; render(); });
+  function rosterPanel() {
+    const list = data.roster.filter((st) => (!q || `${st.name} ${st.id}`.toLowerCase().includes(q)) && (!onlyFree || !teamOf(st.id)));
+    const rows = list.map((st) => {
+      const t = teamOf(st.id), cb = el("input", { type: "checkbox", checked: sel.has(st.id), "aria-label": `Select ${st.name}` });
+      cb.addEventListener("change", () => { if (cb.checked) sel.add(st.id); else sel.delete(st.id); render(); });
+      return el("label", { class: "rrow" + (sel.has(st.id) ? " on" : "") }, cb,
+        el("span", { class: "nm" }, st.name, el("span", { class: "sid mono" }, st.id)),
+        el("span", { class: "tag" + (t ? " info" : "") }, t ? t.name : "No team"));
+    });
+    const freeN = data.roster.filter((st) => !teamOf(st.id)).length;
+    const selAll = el("button", { class: "btn small", type: "button" }, list.every((st) => sel.has(st.id)) && list.length ? "Clear" : "Select all shown");
+    selAll.addEventListener("click", () => { const allOn = list.every((st) => sel.has(st.id)); list.forEach((st) => (allOn ? sel.delete(st.id) : sel.add(st.id))); render(); });
+    const mk = el("button", { class: "btn primary small", type: "button", disabled: !sel.size }, icon("users"), `New team with ${sel.size || "the"} selected`);
+    mk.addEventListener("click", () => teamDialog(null));
+    return el("section", { class: "rpanel" },
+      el("div", { class: "rhead" }, el("b", {}, `Students (${data.roster.length})`), el("span", { class: "small muted" }, `${freeN} not in a team`)),
+      el("div", { class: "rtools" }, search, el("label", { class: "chk small" }, free, " Only students not in a team"), selAll),
+      el("div", { class: "rlist" }, ...(rows.length ? rows : [el("p", { class: "small muted", style: "padding:10px" }, "No student matches.")])),
+      el("div", { class: "rfoot" }, el("span", { class: "small" }, `${sel.size} selected`), mk));
+  }
+  // ---- the teams: members (× to remove), add the selected students, chat, rename, delete
+  function teamCard(t) {
+    const chips = t.members.map((m) => {
+      const x = el("button", { class: "x", type: "button", title: `Remove ${nameOf(m)} from ${t.name}`, "aria-label": `Remove ${nameOf(m)}` }, "×");
+      x.addEventListener("click", () => save(t, t.members.filter((y) => y !== m)));
+      return el("span", { class: "chip" }, nameOf(m), x);
+    });
+    const addSel = el("button", { class: "btn small", type: "button", disabled: !sel.size, title: "Add the students ticked on the left" }, `+ Add ${sel.size || ""} selected`.replace("  ", " "));
+    addSel.addEventListener("click", () => save(t, [...new Set([...t.members, ...sel])]));
+    const chat = el("button", { class: "btn small", type: "button", name: "chat" }, "Chat", t.messages ? el("span", { class: "cnt" }, String(t.messages)) : "");
+    chat.addEventListener("click", () => chatDialog(t));
+    const edit = el("button", { class: "btn small", type: "button" }, "Edit");
+    edit.addEventListener("click", () => teamDialog(t));
+    const del = el("button", { class: "btn small danger", type: "button", title: `Delete ${t.name}` }, "Delete");
+    del.addEventListener("click", () => {
+      const yes = el("button", { class: "btn danger", type: "button" }, "Delete team");
+      const m = modal(`Delete ${t.name}?`, el("div", { class: "form" }, el("p", {}, "The students go back to “No team”. Their chat stays saved in the Chat tab of the Google Sheet."),
+        el("div", { class: "actions" }, el("button", { class: "btn", type: "button", "data-cancel": "" }, "Cancel"), yes)));
+      yes.addEventListener("click", async () => {
+        yes.disabled = true;
+        try { data.teams = (await trainerCall("deleteTeam", { id: t.id })).teams; m.close(); toast(`${t.name} deleted.`, "good"); render(); }
+        catch (e) { toast(e.message, "bad"); yes.disabled = false; }
+      });
+    });
+    return el("article", { class: "tcard", "data-team": t.id },
+      el("div", { class: "thead" }, el("b", { class: "tname" }, t.name), el("span", { class: "small muted" },
+        `${t.members.length} member${t.members.length === 1 ? "" : "s"}` + (t.lastChatAt ? ` · last message ${timeAgo(t.lastChatAt)}` : "") + (t.shares ? ` · ${t.shares} shared` : ""))),
+      el("div", { class: "chips" }, ...(chips.length ? chips : [el("span", { class: "small muted" }, "No members yet: tick students on the left, then + Add selected.")])),
+      el("div", { class: "btnrow" }, addSel, chat, edit, del));
+  }
+  function render() {
+    body.replaceChildren(rosterPanel(),
+      el("section", { class: "tpanel" }, data.teams.length ? el("div", { class: "tcards" }, ...data.teams.map(teamCard)) :
+        el("div", { class: "note" }, el("b", {}, "No teams yet. "), "Tick some students on the left and press ", el("b", {}, "New team with the selected"), ", or use ", el("b", {}, "Make teams automatically"), ".")));
+    const keep = document.activeElement === search;
+    if (keep) { search.focus(); }
+  }
+  // ---- new / edit team: name + members (search inside)
+  function teamDialog(t) {
+    const name = el("input", { name: "teamname", required: true, maxlength: 60, value: t ? t.name : `Team ${data.teams.length + 1}`, placeholder: "e.g. Team Pasig" });
+    const chosen = new Set(t ? t.members : [...sel]);
+    const fq = el("input", { type: "search", placeholder: "Search students", "aria-label": "Search students" });
+    const list = el("div", { class: "partnerlist teampick" });
+    const paint = () => {
+      const f = fq.value.trim().toLowerCase();
+      list.replaceChildren(...data.roster.filter((st) => !f || `${st.name} ${st.id}`.toLowerCase().includes(f)).map((st) => {
+        const cb = el("input", { type: "checkbox", value: st.id, checked: chosen.has(st.id) });
+        cb.addEventListener("change", () => { if (cb.checked) chosen.add(st.id); else chosen.delete(st.id); count.textContent = `${chosen.size} selected`; });
+        const other = teamOf(st.id);
+        return el("label", { class: "choice" }, cb, el("span", {}, st.name, el("span", { class: "muted mono" }, `  ${st.id}`),
+          other && (!t || other.id !== t.id) ? el("span", { class: "tag small" }, `in ${other.name}: will move`) : ""));
+      }));
+    };
+    fq.addEventListener("input", paint);
+    const count = el("span", { class: "small muted" }, `${chosen.size} selected`);
+    const ok = el("button", { class: "btn primary", type: "submit" }, t ? "Save team" : "Create team");
+    const f = el("form", { class: "form" }, el("label", {}, "Team name", name), el("div", { class: "rowsplit" }, el("b", {}, "Members"), count), fq, list,
+      el("p", { class: "small muted" }, "A student can be in one team only: choosing a student from another team moves them here."),
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "button", "data-cancel": "" }, "Cancel"), ok));
+    paint();
+    const m = modal(t ? `Edit ${t.name}` : "New team", f);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!name.value.trim()) return name.focus();
+      ok.disabled = true;
+      if (await save(t, [...chosen], name.value.trim())) { m.close(); toast(t ? "Team saved." : `${name.value.trim()} created.`, "good"); } else ok.disabled = false;
+    });
+  }
+  // ---- make teams automatically from the students not in a team
+  autoBtn.addEventListener("click", () => {
+    const freeSt = data.roster.filter((st) => !teamOf(st.id));
+    if (!freeSt.length) return toast("Every student is already in a team.", "good");
+    const size = el("input", { type: "number", name: "size", min: 2, max: 8, value: 3 });
+    const order = el("select", { name: "order" }, el("option", { value: "list" }, "In roster order"), el("option", { value: "mix" }, "Mixed (random)"));
+    const prev = el("p", { class: "small muted" });
+    const plan = () => {
+      const n = Math.max(2, Math.min(8, Number(size.value) || 3)), k = Math.max(1, Math.round(freeSt.length / n));
+      prev.textContent = `${freeSt.length} students not in a team → ${k} team${k === 1 ? "" : "s"} of about ${Math.ceil(freeSt.length / k)}.`;
+      return k;
+    };
+    size.addEventListener("input", plan); plan();
+    const ok = el("button", { class: "btn primary", type: "submit" }, "Make the teams");
+    const f = el("form", { class: "form" }, el("label", {}, "Students per team", size), el("label", {}, "Who goes together", order), prev,
+      el("p", { class: "small muted" }, "Teams are named Team 1, Team 2… (after any you already have). You can rename and move students afterwards."),
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "button", "data-cancel": "" }, "Cancel"), ok));
+    const m = modal("Make teams automatically", f);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      ok.disabled = true; ok.textContent = "Making the teams…";
+      const k = plan(), ids = freeSt.map((st) => st.id);
+      if (order.value === "mix") for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
+      const groups = Array.from({ length: k }, () => []);
+      ids.forEach((id, i) => groups[i % k].push(id));
+      let num = data.teams.length;
+      for (const g of groups) {
+        num++;
+        try { data.teams = (await trainerCall("saveTeam", { name: `Team ${num}`, members: g })).teams; }
+        catch (err) { toast(err.message, "bad"); break; }
+      }
+      m.close(); render(); toast(`${k} team${k === 1 ? "" : "s"} made.`, "good");
+    });
+  });
+  // ---- a team's chat (the trainer can read and write)
+  function chatDialog(t) {
+    let last = 0;
+    const list = el("div", { class: "chatlist" }, el("p", { class: "empty small muted" }, "Loading…"));
+    const input = el("textarea", { class: "chatin", rows: 1, maxlength: 1000, placeholder: `Message ${t.name} as Trainer…` });
+    const send = el("button", { class: "btn primary", type: "submit" }, "Send");
+    const form = el("form", { class: "chatform" }, input, send);
+    const add = (msgs, first) => {
+      if (first) list.replaceChildren(msgs.length ? "" : el("p", { class: "empty small muted" }, "No messages in this team yet."));
+      if (msgs.length) list.querySelector(".empty")?.remove();
+      for (const mm of msgs) {
+        list.append(el("div", { class: "msg" + (mm.from === "TRAINER" ? " mine trainer" : "") },
+          el("div", { class: "who" }, mm.from === "TRAINER" ? "You (Trainer)" : `${mm.name} · ${mm.from}`, el("span", { class: "t" }, timeAgo(mm.at))), el("div", { class: "txt" }, mm.text)));
+        last = Math.max(last, mm.at);
+      }
+      if (msgs.length) list.scrollTop = list.scrollHeight;
+    };
+    const poll = async (first) => { try { add((await trainerCall("teamChat", { teamId: t.id, since: first ? 0 : last }, { quiet: true })).messages || [], first); } catch (e) { if (first) toast(e.message, "bad"); } };
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      send.disabled = true;
+      try { const r = await trainerCall("chatSend", { teamId: t.id, text }); input.value = ""; add([r.message]); }
+      catch (err) { toast(err.message, "bad"); } finally { send.disabled = false; input.focus(); }
+    });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
+    const m = modal(`${t.name}: team chat`, el("div", { class: "chatbox inmodal" },
+      el("p", { class: "small muted" }, t.members.map(nameOf).join(" · ")), list, form), { wide: true });
+    poll(true);
+    const iv = setInterval(() => { if (!document.body.contains(m.box)) { clearInterval(iv); load(); return; } poll(false); }, 5000);
+  }
+  newBtn.addEventListener("click", () => teamDialog(null));
+  refreshBtn.addEventListener("click", load);
+  await load();
+}
+
 const indexBy = (arr, f) => Object.fromEntries(arr.map((x) => [f(x), x]));
 
 /** Forget the trainer key on this browser and show the key screen again (stops the board's auto-refresh). */
@@ -1977,6 +2494,8 @@ async function openDetail(st, day, item, s, l, opts = {}) {
     }).catch(() => cc.replaceChildren(el("span", { class: "small muted" }, "Copy check is not available until the Apps Script server is updated.")));
   }
   if (older) kids.push(el("p", { class: "note" }, `You are looking at an older attempt (#${d.final.attempt}). Grades and feedback go on the latest attempt.`));
+  const sharedFrom = String(((payload.sub || {}).answers || {}).sharedFrom || "");
+  if (sharedFrom) kids.push(el("p", { class: "note small" }, el("b", {}, "Shared work: "), `${st.name} used the answers that ${nameOf(sharedFrom)} (${sharedFrom}) shared in their team, then submitted them.`));
   const worklink = String(((payload.sub || {}).answers || {}).worklink || "").trim();
   if (/^https:\/\//i.test(worklink)) kids.push(el("div", { class: "worklinkbox" },
     el("div", {}, el("b", {}, "The student worked in Google Sheets or Excel and shared this file:"), el("div", { class: "small mono wl" }, worklink),
@@ -2168,13 +2687,15 @@ async function route_() {
   document.querySelectorAll(".modal-back").forEach((m) => m.remove());
   const h = location.hash.replace(/^#\/?/, "").split("/");
   try {
+    if (h[0] === "trainer" && h[1] === "teams") return await viewTeams();
     if (h[0] === "trainer") return await viewTrainer();
     if (!session.get()) return await viewLogin();
     if (h[0] === "day") return await viewDay(Number(h[1]));
     if (h[0] === "lesson") return await viewLesson(Number(h[1]), h[2] === undefined ? undefined : Number(h[2]));
     if (h[0] === "sheet") return await viewSheet(Number(h[1]));
     if (h[0] === "sql") return await viewSql(Number(h[1]));
-    if (h[0] === "act") return await viewActivity(Number(h[1]), h[2]);
+    if (h[0] === "act") return await viewActivity(Number(h[1]), h[2], h[3] === "share" ? h[4] : null);
+    if (h[0] === "team") return await viewTeam();
     if (h[0] === "quiz") return await viewQuiz(Number(h[1]));
     if (h[0] === "files") return await viewFiles(Number(h[1]));
     if (h[0] === "login") return await viewLogin();

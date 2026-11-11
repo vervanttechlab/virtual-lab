@@ -2,6 +2,33 @@
   "_how": "Newest first. When sw.js VERSION changes, add an entry with the SAME v. 'student' items are shown to students in the update window, 'trainer' items on the trainer board. Leave a list empty if that side has nothing new (they then see 'Small fixes and improvements').",
   "versions": [
     {
+      "v": "dal3-lab-v42",
+      "student": [
+        "My team: chat with your team (your trainer can read it too) and see work your teammates shared with you.",
+        "After you submit an activity, you can share it with one, some or all of your team. They can use it and submit it, or review it first."
+      ],
+      "trainer": [
+        "Teams (button on the board): make teams from the student list, read and write in every team's chat, and see when work was shared."
+      ]
+    },
+    {
+      "v": "dal3-lab-v41",
+      "student": [
+        "Lesson videos now play just the part you are reading and stop at the end of that topic. Tap Watch again, or go on to the next part.",
+        "Days 4 and 5 now have their demo videos in the lesson too."
+      ],
+      "trainer": [
+        "Lesson videos are short clips stored with the lab: each stops at the end of its topic. Days 4 and 5 have videos now."
+      ]
+    },
+    {
+      "v": "dal3-lab-v40",
+      "student": [
+        "Activity 4.1 now has the database right inside it: open Tables to see the columns and keys, tap Show rows to peek at a table, and run your COUNT queries there. The SQL tab has Show rows too."
+      ],
+      "trainer": []
+    },
+    {
       "v": "dal3-lab-v39",
       "student": [
         "Updates now arrive while you work: this window tells you, and your work stays saved."

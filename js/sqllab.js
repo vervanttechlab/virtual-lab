@@ -100,17 +100,25 @@ export function resultTable(res, max = 50) {
 }
 
 /** Collapsible list of tables and columns (like the SQLTools tree). Tapping a name inserts it into the last editor. */
-export function schemaPanel(insert) {
-  const d = el("details", { class: "schema" }, el("summary", {}, icon("db"), el("span", {}, "Tables"), el("span", { class: "small muted" }, "aling_nena.db · tap a name to insert it")));
+/** The tables of aling_nena.db with their columns (PK / FK marked), like SQLTools' tree. Tap a name to insert it;
+ *  with peek(table), each table also gets "Show rows" (SQLTools: right-click › Show Table Records). */
+export function schemaPanel(insert, peek, { open = false } = {}) {
+  const d = el("details", { class: "schema", open: open || null }, el("summary", {}, icon("db"), el("span", {}, "Tables"),
+    el("span", { class: "small muted" }, "aling_nena.db · tap a name to insert it" + (peek ? " · Show rows to peek" : ""))));
   for (const [t, cols] of Object.entries(TABLES)) {
     const tb = el("button", { type: "button", class: "sname t" }, t);
     tb.addEventListener("click", () => insert(t));
+    let pkBtn = "";
+    if (peek) {
+      pkBtn = el("button", { type: "button", class: "btn small peek", title: `Show the rows of ${t}` }, icon("grid"), "Show rows");
+      pkBtn.addEventListener("click", () => peek(t));
+    }
     const cs = cols.map((c) => {
       const b = el("button", { type: "button", class: "sname" }, c, PK[t] === c ? el("span", { class: "kb" }, "PK") : FK[`${t}.${c}`] ? el("span", { class: "kb fk" }, `FK → ${FK[`${t}.${c}`]}`) : "");
       b.addEventListener("click", () => insert(c));
       return b;
     });
-    d.append(el("div", { class: "stable" }, tb, el("div", { class: "scols" }, ...cs)));
+    d.append(el("div", { class: "stable" }, el("div", { class: "shead" }, tb, pkBtn), el("div", { class: "scols" }, ...cs)));
   }
   return d;
 }

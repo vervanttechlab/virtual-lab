@@ -966,3 +966,77 @@ a.pitem:hover { text-decoration: none; background: var(--panel-2); }
 .upd-new ul { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
 .upd .actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .upd .actions .btn.primary { min-width: 140px; }
+/* SQL tables list: "Show rows" next to each table; the practice SQL box inside an activity (4.1) */
+.stable .shead { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.stable .peek { margin-left: auto; min-height: 28px; padding: 0 8px; font-size: 12px; }
+.part.sqlpad { border-left-color: var(--info); background: var(--panel); }
+/* lesson clips: the browser's own player; "End of this part" panel over the last frame */
+.vstage video { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; }
+.vend { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  padding: 12px; background: rgba(20, 20, 20, .82); color: #fff; text-align: center; }
+.vend .t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; }
+.vend .t .ic { color: #5ec98a; width: 20px; height: 20px; }
+.vend .btnrow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.vend .btn:not(.primary) { background: #2b2a29; color: #fff; border-color: #605e5c; }
+.vchapters tr[data-k] { cursor: pointer; }
+.vchapters tr[data-k]:hover, .vchapters tr[data-k]:focus-visible { background: rgba(127, 127, 127, .14); outline: none; }
+.vchapters tr[data-k].on { background: var(--accent-soft); font-weight: 600; }
+
+/* ------------------------------------------------------------------ teams: student Team page, chat, sharing; trainer Teams screen */
+.teamhead { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); padding: 12px 14px; }
+.teamhead .tname { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; }
+.teamhead .tname .ic { width: 20px; height: 20px; color: var(--accent); }
+.teamhead .members, .tcard .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border: 1px solid var(--line-strong); background: var(--panel-2); font-size: 13px; border-radius: 14px; }
+.chip.me { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.chip .x { border: 0; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 2px; cursor: pointer; min-width: 22px; min-height: 22px; }
+.chip .x:hover { color: var(--bad); }
+.lblnote { margin-left: 8px; font-weight: 400; }
+.sharelist { display: grid; gap: 6px; }
+.sharecard { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; background: var(--panel); border: 1px solid var(--info); border-left-width: 4px; }
+.sharecard > .ic { color: var(--info); width: 18px; height: 18px; }
+.sharecard .nt { font-size: 13px; margin-top: 2px; }
+.sharecard .btnrow { display: flex; gap: 6px; }
+@media (max-width: 600px) { .sharecard { grid-template-columns: 22px 1fr; } .sharecard .btnrow { grid-column: 1 / -1; justify-content: flex-end; } }
+.chatbox { background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; }
+.chatlist { height: min(55vh, 460px); overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
+.chatbox.inmodal .chatlist { height: 50vh; }
+.msg { max-width: 82%; align-self: flex-start; background: var(--panel); border: 1px solid var(--line); padding: 7px 10px; border-radius: 10px 10px 10px 2px; }
+.msg.mine { align-self: flex-end; background: var(--accent-soft); border-color: var(--accent); border-radius: 10px 10px 2px 10px; }
+.msg.trainer:not(.mine) { border-color: var(--info); box-shadow: inset 3px 0 0 var(--info); }
+.msg .who { font-size: 11.5px; font-weight: 700; color: var(--muted); display: flex; gap: 8px; }
+.msg.trainer .who { color: var(--info); }
+.msg .who .t { font-weight: 400; }
+.msg .txt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; margin-top: 2px; }
+.chatform { display: flex; gap: 8px; padding: 8px; border-top: 1px solid var(--line); align-items: flex-end; }
+.chatin { flex: 1; resize: none; min-height: 40px; max-height: 120px; font: inherit; padding: 9px 10px; }
+.sharebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; background: var(--panel-2); border-left: 4px solid var(--info); border-bottom: 1px solid var(--line); }
+.sharebar[hidden] { display: none; }
+.sharebox .nt { padding: 6px 10px; background: var(--panel-2); border: 1px solid var(--line); }
+.sharebox .warnline { padding: 6px 10px; background: var(--warn-bg); color: var(--warn); border-left: 3px solid var(--warn); font-size: 13px; }
+.sharebox .allrow { border: 1px solid var(--line); padding: 8px 10px; }
+.sharebanner { border-color: var(--accent); } .sharebanner > .ic, .sharebanner .go { color: var(--accent); }
+/* trainer Teams screen */
+.page.wide > * { max-width: 1400px; }
+.teamsgrid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.rpanel { background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; position: sticky; top: 52px; max-height: calc(100vh - 64px); }
+.rhead { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.rtools { display: grid; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.rtools .btn { justify-self: start; }
+.rlist { overflow-y: auto; flex: 1; min-height: 120px; }
+.rrow { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; font-weight: 400; color: var(--ink); }
+.rrow:hover { background: var(--panel-2); }
+.rrow.on { background: var(--accent-soft); }
+.rrow input { width: 16px; height: 16px; accent-color: var(--accent); }
+.rrow .nm { display: flex; flex-direction: column; min-width: 0; font-size: 14px; }
+.rrow .sid { font-size: 11px; color: var(--muted); }
+.rfoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.tcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.tcard { background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--accent); padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.tcard .thead { display: flex; flex-direction: column; }
+.tcard .tname { font-size: 16px; }
+.tcard .btnrow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 6px; }
+.tcard .cnt { margin-left: 6px; font: 600 11px var(--mono); background: var(--info); color: #fff; padding: 0 5px; border-radius: 8px; }
+.teampick { max-height: 45vh; overflow-y: auto; }
+.rowsplit { display: flex; justify-content: space-between; align-items: baseline; }
+@media (max-width: 800px) { .teamsgrid { grid-template-columns: 1fr; } .rpanel { position: static; max-height: 60vh; } }
