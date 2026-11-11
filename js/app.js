@@ -799,7 +799,9 @@ async function viewSql(n) {
   const day = await getDay(n);
   const key = `dal3_sqlpad_${uid()}_${day.tag}`;
   const csvBtn = el("button", { class: "btn small", type: "button" }, icon("download"), "Download CSV");
-  const ed = sqlEditor({ value: store.get(key, ""), rows: 6, onInput: debounce((t) => store.set(key, t), 400), extra: [csvBtn] });
+  const saveSql = debounce((t) => store.set(key, t), 400);
+  const ed = sqlEditor({ value: store.get(key, ""), rows: 6, onInput: saveSql, extra: [csvBtn] });
+  onLeave(() => saveSql.flush());
   csvBtn.addEventListener("click", () => {
     const r = ed.lastResult();
     if (!r) return toast("Run a query first.");
@@ -2146,9 +2148,10 @@ function exportCsv(data, n) {
 
 // ------------------------------------------------------------------ helpers & router
 function debounce(fn, ms) {
-  let t;
-  const d = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
-  d.flush = () => { clearTimeout(t); fn(); };
+  let t, args = null;
+  const d = (...a) => { args = a; clearTimeout(t); t = setTimeout(() => { const x = args; args = null; fn(...x); }, ms); };
+  // flush: run the waiting call now (with its arguments); a function without arguments always runs, as before
+  d.flush = () => { clearTimeout(t); const x = args; args = null; if (x || fn.length === 0) fn(...(x || [])); };
   return d;
 }
 const loadbar = el("div", { id: "loadbar", role: "progressbar", "aria-label": "Loading" });
@@ -2186,18 +2189,66 @@ window.addEventListener("hashchange", route);
 window.addEventListener("beforeunload", () => cleanup.forEach((fn) => { try { fn(); } catch { /* ignore */ } }));
 route();
 queue.flush();
-// Offline support + clean updates. When a new version takes over: reload on lists/lessons; inside an activity or a
-// workbook, ask first so a student's typing is never interrupted.
-if ("serviceWorker" in navigator && location.protocol !== "file:") {
-  const hadController = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
-  let reloading = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (!hadController || reloading) return;
-    const working = /^#\/(act|sheet|quiz)\//.test(location.hash);
-    if (!working) { reloading = true; location.reload(); return; }
-    const bar = el("div", { class: "updatebar", role: "status" }, "A new version of the lab is ready.",
-      el("button", { class: "btn small primary", type: "button", onclick: () => { reloading = true; location.reload(); } }, "Reload"));
-    document.body.append(bar);
+// ------------------------------------------------------------------ app updates, in real time
+// An open app checks for a new version every minute (and when the tab comes back to the front). When one is ready, a window
+// pauses the page: it says the work is saved and lists only what is new FOR THIS PERSON (student or trainer), then
+// "Reload now" saves everything still open (a cell being typed, the SQL box, the answers) and reloads.
+const SEEN_V = "dal3_seen_version";
+const isTrainerView = () => location.hash.startsWith("#/trainer");
+async function whatsNew() {
+  try { return (await (await fetch(`whatsnew.json?t=${Date.now()}`, { cache: "no-store" })).json()).versions || []; }
+  catch { return []; }
+}
+/** The notes since the last version this device saw (only the newest, if it never saw one), for students or for the trainer. */
+function updateNotes(versions) {
+  const seen = store.get(SEEN_V, null), side = isTrainerView() ? "trainer" : "student", fresh = [];
+  for (const x of versions) { if (x.v === seen) break; fresh.push(x); }
+  const list = (seen ? fresh : versions.slice(0, 1)).flatMap((x) => x[side] || []);
+  return { list: [...new Set(list)], newest: versions[0] ? versions[0].v : null };
+}
+let updateOpen = false;
+async function showUpdate() {
+  if (updateOpen) return;
+  updateOpen = true;
+  const { list, newest } = updateNotes(await whatsNew());
+  const trainerView = isTrainerView(), working = /^#\/(act|sheet|sql|quiz)\//.test(location.hash);
+  const btn = el("button", { class: "btn primary", type: "button", name: "updreload" }, "Reload now");
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    btn.textContent = "Saving your work…";
+    try { SheetUI.commitAll(); } catch (e) { console.warn(e); }
+    cleanup.forEach((fn) => { try { fn(); } catch (e) { console.warn(e); } });   // every page saves what is still open
+    cleanup = [];
+    if (newest) store.set(SEEN_V, newest);
+    setTimeout(() => location.reload(), 200);
   });
+  const later = trainerView ? el("button", { class: "btn", type: "button", name: "updlater" }, "Finish first (remind me in 1 minute)") : "";
+  const back = el("div", { class: "upd-back" });
+  if (later) later.addEventListener("click", () => { back.remove(); updateOpen = false; setTimeout(showUpdate, 60000); });
+  back.append(el("div", { class: "upd", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "upd-h" },
+    el("div", { class: "upd-top" }, icon("download"), el("h3", { id: "upd-h" }, "A new version of the lab is ready")),
+    el("p", { class: "upd-safe" }, icon("check"), el("span", {}, trainerView
+      ? "Your board stays the same. If you are typing a grade or feedback, finish and save it first."
+      : working ? "Your work is saved on this phone. It stays exactly the same after the update: you continue where you stopped."
+        : "Your work is saved and stays exactly the same after the update.")),
+    list.length ? el("div", { class: "upd-new" }, el("div", { class: "k" }, "What's new for you"), el("ul", {}, ...list.map((t) => el("li", {}, t))))
+      : el("p", { class: "small muted" }, "Small fixes and improvements."),
+    el("div", { class: "actions" }, later, btn)));
+  document.body.append(back);
+  btn.focus();
+}
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  let controller = navigator.serviceWorker.controller;            // null on the very first visit
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+    const check = () => { if (navigator.onLine && !updateOpen) reg.update().catch(() => {}); };
+    setInterval(check, 60000);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+    window.addEventListener("online", check);
+  }).catch(() => {});
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (controller) showUpdate();                                   // a NEW version replaced the one this page runs on
+    controller = navigator.serviceWorker.controller;               // (the first install taking control is not an update)
+  });
+  // first run on this device: remember the current version, so the next update only lists what is new after it
+  if (!store.get(SEEN_V, null)) whatsNew().then((v) => { if (v[0] && !store.get(SEEN_V, null)) store.set(SEEN_V, v[0].v); });
 }

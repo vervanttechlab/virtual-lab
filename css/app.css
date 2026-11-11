@@ -953,3 +953,16 @@ a.pitem:hover { text-decoration: none; background: var(--panel-2); }
 .redobox .small { color: var(--muted); }
 .feedback.redo { border-left-color: var(--info); color: var(--info); }
 .pitem .st.redo { color: var(--info); border-color: var(--info); font: 700 12px var(--ui); }
+/* app update window: pauses the page until "Reload now" */
+.upd-back { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.upd { width: 100%; max-width: 440px; max-height: 90vh; overflow: auto; background: var(--panel); color: var(--ink); border: 1px solid var(--line-strong);
+  border-top: 4px solid var(--accent); padding: 18px 18px 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .3); }
+.upd-top { display: flex; align-items: center; gap: 10px; }
+.upd-top .ic { width: 22px; height: 22px; color: var(--accent); }
+.upd-top h3 { font-size: 17px; }
+.upd-safe { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0; padding: 10px 12px; background: var(--good-bg); border-left: 3px solid var(--good); font-size: 14px; }
+.upd-safe .ic { color: var(--good); margin-top: 3px; }
+.upd-new .k { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.upd-new ul { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
+.upd .actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.upd .actions .btn.primary { min-width: 140px; }

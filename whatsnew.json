@@ -1,0 +1,46 @@
+{
+  "_how": "Newest first. When sw.js VERSION changes, add an entry with the SAME v. 'student' items are shown to students in the update window, 'trainer' items on the trainer board. Leave a list empty if that side has nothing new (they then see 'Small fixes and improvements').",
+  "versions": [
+    {
+      "v": "dal3-lab-v39",
+      "student": [
+        "Updates now arrive while you work: this window tells you, and your work stays saved."
+      ],
+      "trainer": [
+        "Open boards learn about updates within about a minute and show this window (you can finish grading first)."
+      ]
+    },
+    {
+      "v": "dal3-lab-v38",
+      "student": [
+        "Submit window: choose to turn in your work in the lab's Workbook, or a link to your Google Sheets / Excel file.",
+        "If your trainer asks for a redo, you see it on Home, and your answers are still there to fix and submit again."
+      ],
+      "trainer": [
+        "Return for redo: click a cell › Ask for a redo. The student keeps their answers and submits again.",
+        "Pages use the full width next to the menu."
+      ]
+    },
+    {
+      "v": "dal3-lab-v34",
+      "student": [
+        "New menu: a sidebar on computers and tabs at the bottom on phones (Home, your Day, Progress, Account)."
+      ],
+      "trainer": []
+    },
+    {
+      "v": "dal3-lab-v33",
+      "student": [
+        "My progress has a new look: your next step, your trainer's feedback, and each day's activities in plain words."
+      ],
+      "trainer": []
+    },
+    {
+      "v": "dal3-lab-v32",
+      "student": [
+        "Lesson videos now start at the right part. On the Demo video page, tap a chapter to jump to it."
+      ],
+      "trainer": []
+    }
+  ]
+}

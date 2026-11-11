@@ -45,8 +45,12 @@ export class SheetUI {
     this.build();
     this.unsub = wb.onChange((info) => this.onWbChange(info));
     this.renderSheet();
+    SheetUI.live.add(this);
   }
-  destroy() { this.unsub && this.unsub(); this.charts.forEach((c) => c.destroy()); this.root.innerHTML = ""; }
+  destroy() { SheetUI.live.delete(this); this.unsub && this.unsub(); this.charts.forEach((c) => c.destroy()); this.root.innerHTML = ""; }
+  /** Before an app update reloads the page: keep a cell the student is still typing in (as if they pressed Enter). */
+  static commitAll() { for (const ui of SheetUI.live) { try { if (ui.editing) ui.commit(); } catch (e) { console.warn(e); } } }
+  static live = new Set();
 
   // ------------------------------------------------------------------ layout
   build() {
