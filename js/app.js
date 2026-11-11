@@ -140,6 +140,7 @@ function accountMenu() {
     el("div", { class: "small muted" }, "Theme"),
     segmented([["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]], display().theme, (v) => set("theme", v)),
     el("div", { class: "actions" },
+    demoMode() ? "" : el("a", { class: "btn wide", href: "#/progress", onclick: () => m.close() }, icon("chart"), "My progress"),
     el("button", { class: "btn wide danger", type: "button", onclick: () => {
       if (queue.list().length && !confirm("Some work is still waiting to be sent. Sign out anyway? It will be sent after you sign in again on this phone.")) return;
       session.clear(); m.close(); location.hash = "#/login";
@@ -227,10 +228,196 @@ async function viewHome() {
         el("h2", {}, `Welcome, ${(session.get().name || "").split(" ")[0] || "trainee"}`),
         el("div", { class: "meta" }, cfg.offline ? "Offline. Keep working: answers are sent when the connection returns." :
           "Activities appear as your trainer opens them.")),
+      demoMode() ? "" : el("div", { class: "toolrow" }, el("a", { class: "btn", href: "#/progress" }, icon("chart"), "My progress and activity log")),
       el("div", { class: "label" }, "Training days"),
       el("div", { class: "list" }, ...rows),
       el("p", { class: "small muted", style: "margin-top:10px" }, "Days 4 to 15 are added as the course progresses."));
   });
+}
+
+// ------------------------------------------------------------------ my progress (the student's own board + activity log)
+async function viewProgress() {
+  const idx = await getIndex();
+  const days = await Promise.all(idx.days.map((d) => getDay(d.day)));
+  const ck = `dal3_prog_${uid()}`;
+  const stamp = el("span", {});
+  const refreshBtn = el("button", { class: "btn small", type: "button" }, "Refresh");
+  const body = el("div", {});
+  shell("My progress", "#/",
+    el("div", { class: "pagehead" }, el("div", { class: "kicker" }, "Data Analytics Level III"), el("h2", {}, "My progress"),
+      el("div", { class: "meta" }, stamp)),
+    el("div", { class: "toolrow" }, refreshBtn, el("a", { class: "btn small", href: "#/" }, "Back to the training days")), body);
+  if (demoMode()) {
+    body.replaceChildren(el("p", { class: "note" }, "Demo mode: there is no class server, so there is no progress record yet."));
+    return;
+  }
+  const here = location.hash;
+  let shown = store.get(ck);
+  if (shown) draw(shown);
+  else body.replaceChildren(el("p", { class: "muted" }, "Loading your progress…"));
+  refreshBtn.addEventListener("click", () => load(false));
+  load(!!shown);
+
+  async function load(quiet) {
+    refreshBtn.disabled = true;
+    try {
+      let p;
+      try {
+        const r = await call("myProgress", {}, { quiet });
+        p = { subs: r.subs || [], live: r.live || [], enabled: r.enabled || null, at: Date.now() };
+      } catch (e) {
+        if (!/unknown action/i.test(e.message)) throw e;
+        // The Apps Script server has not been updated yet: show the latest result of each activity only.
+        const cfg = await loadConfig(true);
+        const subs = [];
+        for (const [day, acts] of Object.entries(cfg.results || {}))
+          for (const [act, r] of Object.entries(acts)) subs.push({ ...r, day, act, attempt: r.attempts, late: false });
+        p = { subs, live: [], enabled: cfg.enabled, at: Date.now(), partial: true };
+      }
+      store.set(ck, p);
+      shown = p;
+      if (location.hash === here) draw(p);
+    } catch (e) {
+      if (location.hash !== here) return;
+      if (/token|login/i.test(e.message) && !(e instanceof NetError)) { session.clear(); location.hash = "#/login"; return; }
+      toast(e instanceof NetError ? "Offline: showing your progress from the last time you were online." : e.message, "bad");
+      if (!shown) body.replaceChildren(el("p", { class: "note" }, "Your progress cannot be loaded right now. Connect to the internet and tap Refresh."));
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  }
+
+  function draw(p) {
+    stamp.textContent = `Updated ${new Date(p.at).toLocaleString()}` + (p.partial ? " · showing your latest attempts only" : "");
+    const t = (x) => new Date(x).getTime() || 0;
+    const subs = [...p.subs].sort((a, b) => t(a.ts) - t(b.ts));
+    const latest = {}, count = {};
+    for (const s of subs) { const k = `${s.day}|${s.act}`; latest[k] = s; count[k] = (count[k] || 0) + 1; }
+    const working = {};
+    for (const l of p.live) {
+      const k = `${l.day}|${l.act}`;
+      if (l.status === "draft" && (!latest[k] || t(l.updated) > t(latest[k].ts))) working[k] = l;
+    }
+    const open = (tag, id) => !p.enabled || !!(p.enabled[tag] && p.enabled[tag][id]);
+    const pointsOf = (s) => {
+      const graded = !Number(s.manualMax) || (s.manual !== "" && s.manual != null);
+      return { pts: Number(s.auto || 0) + Number(s.manual || 0), max: Number(s.autoMax || 0) + Number(s.manualMax || 0), graded };
+    };
+
+    // ---- summary tiles
+    let earned = 0, possible = 0, done = 0, waiting = 0, last = 0;
+    for (const s of Object.values(latest)) {
+      const q = pointsOf(s);
+      earned += q.pts; possible += q.max;
+      if (s.act !== "quiz") done++;
+      if (!q.graded) waiting++;
+    }
+    for (const s of subs) last = Math.max(last, t(s.ts));
+    for (const l of p.live) last = Math.max(last, t(l.updated));
+    const totalActs = days.reduce((n, d) => n + d.activities.length, 0);
+    const tile = (k, v, sub) => el("div", { class: "ptile" }, el("div", { class: "k" }, k), el("div", { class: "v" }, v), sub ? el("div", { class: "s" }, sub) : "");
+    const tiles = el("div", { class: "ptiles" },
+      tile("Points earned", possible ? `${round(earned)}/${round(possible)}` : "—", possible ? `${Math.round(100 * earned / possible)}% of what you turned in` : "Nothing submitted yet"),
+      tile("Activities submitted", `${done}/${totalActs}`, "all days"),
+      tile("Waiting for grade", String(waiting), waiting ? "written answers" : "nothing waiting"),
+      tile("Last active", last ? timeAgo(last) : "—"));
+
+    // ---- one board row per day (the same view the trainer has, for you only)
+    const boards = days.filter((day) => [...day.activities.map((a) => a.id), "quiz"].some((id) =>
+      open(day.tag, id) || latest[`${day.tag}|${id}`] || working[`${day.tag}|${id}`])).map((day) => {
+      const n = day.day, tag = day.tag;
+      const items = [...day.activities.map((a) => ({ id: a.id, title: a.title })), { id: "quiz", title: day.quiz.title }];
+      let total = 0;
+      const tds = items.map((it) => {
+        const k = `${tag}|${it.id}`, s = latest[k], l = working[k], isOpenNow = open(tag, it.id);
+        let txt = isOpenNow ? "OPEN" : "—", cls = "none", title = isOpenNow ? `${it.title}: open, not started` : `${it.title}: closed`;
+        if (s) {
+          const q = pointsOf(s);
+          total += q.pts;
+          txt = `${round(q.pts)}/${round(q.max)}${q.graded ? "" : "*"}`;
+          const f = q.pts / Math.max(1, q.max);
+          cls = f >= 0.8 ? "good" : f >= 0.5 ? "half" : "bad";
+          if (!q.graded && !Number(s.autoMax)) { txt = "TO GRADE"; cls = "pend"; }
+          if (s.late) txt += " LATE";
+          title = `${it.title}: submitted ${timeAgo(s.ts)} · attempt ${count[k]}` + (q.graded ? "" : " · waiting for the trainer's grade");
+        } else if (l) {
+          txt = `${l.pct}%`;
+          cls = "draft" + (Date.now() - t(l.updated) < 3 * 60000 ? " fresh" : "");
+          title = `${it.title}: working · last saved ${timeAgo(l.updated)}`;
+        }
+        if (cls === "none" && isOpenNow) cls = "none open";
+        const href = isOpenNow ? (it.id === "quiz" ? `#/quiz/${n}` : `#/act/${n}/${it.id}`) : null;
+        const td = el("td", { class: cls, title }, href ? el("a", { href }, txt) : txt);
+        return td;
+      });
+      const feedback = items.map((it) => ({ it, s: latest[`${tag}|${it.id}`] })).filter((x) => x.s && x.s.feedback)
+        .map((x) => el("div", { class: "feedback" }, el("b", {}, `${x.it.id === "quiz" ? "Quiz" : x.it.id} · trainer feedback: `), x.s.feedback));
+      return el("div", { class: "pday" },
+        el("div", { class: "label" }, el("a", { href: `#/day/${n}` }, `Day ${n}: ${day.title}`)),
+        el("div", { class: "board mine" }, el("table", { class: "boardtable" },
+          el("thead", {}, el("tr", {}, ...items.map((it) => el("th", { title: it.title }, it.id === "quiz" ? "Quiz" : it.id)), el("th", {}, "Total"))),
+          el("tbody", {}, el("tr", {}, ...tds, el("td", { class: "total" }, round(total)))))),
+        feedback.length ? el("div", { class: "pfeed" }, ...feedback) : "");
+    });
+    const legend = el("div", { class: "legend mine" }, el("span", { class: "lg-good" }, "80% or more"), el("span", { class: "lg-half" }, "50–79%"),
+      el("span", { class: "lg-bad" }, "Below 50%"), el("span", { class: "lg-draft" }, "Working: % correct so far"),
+      el("span", { class: "lg-pend" }, "* or TO GRADE: waiting for the trainer"), el("span", {}, "LATE: sent after it closed"), el("span", {}, "Tap a cell to open it"));
+
+    // ---- activity log (newest first, grouped by date)
+    const titleOf = (tag, id) => {
+      const d = days.find((x) => x.tag === tag);
+      if (!d) return id;
+      return id === "quiz" ? `Day ${d.day} quiz` : `${id} ${(d.activities.find((a) => a.id === id) || {}).title || ""}`;
+    };
+    const events = [
+      ...subs.map((s) => ({ at: t(s.ts), s })),
+      ...Object.values(working).map((l) => ({ at: t(l.updated), l })),
+    ].sort((a, b) => b.at - a.at);
+    const LIMIT = 40;
+    const logList = el("div", { class: "list plog" });
+    const dayKey = (ms) => new Date(ms).toDateString();
+    const dayName = (ms) => {
+      const k = dayKey(ms);
+      if (k === new Date().toDateString()) return "Today";
+      if (k === new Date(Date.now() - 86400000).toDateString()) return "Yesterday";
+      return new Date(ms).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    };
+    const drawLog = (limit) => {
+      let prevDay = "";
+      const rows = [];
+      for (const ev of events.slice(0, limit)) {
+        if (dayKey(ev.at) !== prevDay) { prevDay = dayKey(ev.at); rows.push(el("div", { class: "plog-date" }, dayName(ev.at))); }
+        const time = el("div", { class: "when mono" }, new Date(ev.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+        if (ev.l) {
+          rows.push(el("div", { class: "row plogrow" }, time, el("span", { class: "tag info" }, "WORKING"),
+            el("div", {}, el("div", { class: "title" }, titleOf(ev.l.day, ev.l.act)), el("div", { class: "sub" }, `Saved a draft · ${ev.l.pct}% correct so far`))));
+          continue;
+        }
+        const s = ev.s, q = pointsOf(s), quiz = s.act === "quiz", isLatest = latest[`${s.day}|${s.act}`] === s;
+        const f = q.pts / Math.max(1, q.max);
+        const tagEl = el("span", { class: "tag " + (!q.graded ? "warn" : f >= 0.8 ? "good" : f >= 0.5 ? "warn" : "bad") }, quiz ? "QUIZ" : "SUBMITTED");
+        const mm = Number(s.manualMax);
+        const detail = [`Attempt ${s.attempt || 1}`,
+          q.graded ? `${round(q.pts)}/${round(q.max)} points` : `${round(s.auto)}/${round(s.autoMax)} auto-checked` +
+            (isLatest ? ` · ${mm} ${mm === 1 ? "pt" : "pts"} waiting for the trainer` : " · replaced by a later attempt"),
+          s.late ? "sent after it closed (LATE)" : ""].filter(Boolean).join(" · ");
+        rows.push(el("div", { class: "row plogrow" }, time, tagEl,
+          el("div", {}, el("div", { class: "title" }, titleOf(s.day, s.act)), el("div", { class: "sub" }, detail),
+            s.feedback ? el("div", { class: "feedback" }, "Trainer feedback: " + s.feedback) : "")));
+      }
+      if (!events.length) rows.push(el("div", { class: "row" }, el("span", { class: "muted" }, "No activity yet. Open an activity and start working: it will appear here.")));
+      if (events.length > limit) rows.push(el("div", { class: "row" }, el("button", { class: "btn small", type: "button", onclick: () => drawLog(events.length) },
+        `Show all ${events.length} entries`)));
+      logList.replaceChildren(...rows);
+    };
+    drawLog(LIMIT);
+
+    body.replaceChildren(tiles,
+      el("div", { class: "label" }, "My board"), boards.length ? el("div", {}, ...boards, legend) :
+        el("p", { class: "muted" }, "No activities are open yet."),
+      el("div", { class: "label" }, "Activity log"), logList,
+      p.partial ? el("p", { class: "small muted", style: "margin-top:10px" }, "The full history of every attempt appears after your trainer updates the lab server.") : "");
+  }
 }
 
 async function viewDay(n) {
@@ -1261,6 +1448,7 @@ async function route_() {
     if (h[0] === "quiz") return await viewQuiz(Number(h[1]));
     if (h[0] === "files") return await viewFiles(Number(h[1]));
     if (h[0] === "login") return await viewLogin();
+    if (h[0] === "progress") return await viewProgress();
     return await viewHome();
   } catch (e) {
     console.error(e);

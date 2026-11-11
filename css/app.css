@@ -639,3 +639,31 @@ pre.answer.mono { font-family: Consolas, "Cascadia Mono", monospace; }
    (titles wrap on phones and grow with the Larger text size), so the sheet tabs are never hidden under the status bar. */
 .page.work { display: flex; flex-direction: column; height: calc(100vh - 40px - 41px); height: calc(100dvh - 40px - 41px); }
 .page.work > .panes { flex: 1 1 auto; min-height: 0; height: auto; }
+
+/* ------------------------------------------------------------------ my progress (student) */
+.ptiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 4px 0 6px; }
+.ptile { background: var(--panel); border: 1px solid var(--line); padding: 10px 12px; min-width: 0; }
+.ptile .k { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.ptile .v { font: 700 22px var(--mono); margin-top: 2px; color: var(--ink); }
+.ptile .s { font-size: 12px; color: var(--muted); }
+.pday { margin-bottom: 4px; }
+.pday .label a { color: inherit; }
+.board.mine { padding: 0; background: var(--panel); border: 1px solid var(--line); }
+.board.mine .boardtable { min-width: 100%; }
+.board.mine td a { display: block; color: inherit; text-decoration: none; line-height: 34px; }
+.board.mine td.none { cursor: default; } .board.mine td.none.open { color: var(--accent); font-family: var(--ui); font-size: 11px; font-weight: 600; cursor: pointer; }
+.board.mine td:not(:has(a)):hover { outline: 0; }
+.pfeed { display: grid; gap: 6px; padding: 8px 0 0; }
+.pfeed .feedback { grid-column: auto; }
+.legend.mine { padding: 10px 0 0; }
+.plog-date { padding: 8px 12px 4px; border-top: 1px solid var(--line); background: var(--panel-2); font-size: 12px; font-weight: 600; color: var(--muted); }
+.plogrow { grid-template-columns: 64px 96px 1fr; align-items: start; }
+.plogrow .when { color: var(--muted); font-size: 12px; padding-top: 2px; }
+.plogrow .tag { justify-self: start; margin-top: 1px; }
+.plogrow .feedback { margin-top: 6px; }
+@media (max-width: 600px) {
+  .ptiles { grid-template-columns: 1fr 1fr; }
+  .plogrow { grid-template-columns: 56px 1fr; gap: 6px 10px; }
+  .plogrow > div:last-child { grid-column: 1 / -1; }
+  .plogrow .tag { justify-self: end; }
+}
