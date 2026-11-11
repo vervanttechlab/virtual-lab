@@ -447,7 +447,10 @@ async function viewDay(n) {
     shell(`Day ${n}`, "#/", dayTabs(n, "day"),
       el("div", { class: "pagehead" }, el("div", { class: "kicker" }, `Day ${n} · ${day.unit}`), el("h2", {}, day.title)),
       VIDEOS[n] ? el("div", { class: "toolrow" }, el("a", { class: "btn", href: `#/lesson/${n}/0` }, icon("play"), "Watch the demo video")) : "",
-      el("div", { class: "label" }, "Activities"), head, el("div", { class: "list" }, ...rows),
+      el("div", { class: "label" }, "Activities"),
+      day.activities.some((a) => a.sheet) ? el("p", { class: "small muted daynote" }, "Activities with a Workbook save your work in the lab. Tap ",
+        el("b", {}, "Submit"), " when done; no need to copy it to Excel or upload a file.") : "",
+      head, el("div", { class: "list" }, ...rows),
       el("div", { class: "label" }, "Self-check"),
       el("div", { class: "list", style: "border-top:1px solid var(--line)" },
         el(qOpen ? "a" : "div", { class: "row actsrow" + (qOpen ? "" : " closed"), href: qOpen ? `#/quiz/${n}` : null },
@@ -659,6 +662,9 @@ async function viewActivity(n, actId) {
         const r = await resultOf();
         wb.removeExtraSheet(imp.sheet);
         wb.addOutputSheet(imp.sheet, [r.columns, ...r.rows], {});
+        // The imported sheet is too big for the class server (a Sheets cell holds ~50,000 characters), so it is
+        // dropped from the saved copy. Keep the query that made it: the trainer's view runs it again to rebuild the sheet.
+        wb.specs.imports = { ...(wb.specs.imports || {}), [imp.sheet]: String((allAns[imp.from] || {})[imp.part].sql) };
         // formulas typed before the import pointed at a missing sheet: enter them again so they recalculate
         for (const [k, v] of Object.entries(wb.edits)) if (typeof v === "string" && v.startsWith("=") && v.includes(imp.sheet)) {
           const g = window.WBCore.parseRef(k);
@@ -733,7 +739,23 @@ async function viewActivity(n, actId) {
     partEls[p.id] = { box, fb };
     form.append(box);
   }
-  const left = el("div", { class: "pane pane-task" }, steps, el("div", { class: "task-sec" }, el("div", { class: "label" }, "Answers"), form));
+  // Optional: the student worked in Google Sheets / Excel instead and shares a link (the trainer grades it).
+  const hasSheetWork = act.parts.some((p) => p.type === "cells" || p.type === "spec");
+  let linkInput = null;
+  if (hasSheetWork) {
+    linkInput = el("input", { type: "url", inputmode: "url", value: ans.worklink || "", placeholder: "https://docs.google.com/spreadsheets/d/…" });
+    linkInput.addEventListener("input", () => { const v = linkInput.value.trim(); if (v) ans.worklink = v; else delete ans.worklink; touch(); });
+    form.append(el("div", { class: "part worklink", "data-part": "worklink" },
+      el("div", { class: "phead" }, el("span", { class: "pprompt" }, "Optional: did you work in Google Sheets or Excel instead?"), el("span", { class: "ppts" }, "optional")),
+      el("p", { class: "small muted" }, "Leave this empty if you worked in the lab's Workbook. Otherwise paste the share link of your file here. First set its sharing to ",
+        el("b", {}, "Anyone with the link · Viewer"), ". Your trainer opens it and grades the workbook part."), linkInput));
+  }
+  const syncKey = `dal3_syncnote_${uid()}`;
+  const syncNote = needsSheet && !store.get(syncKey) ? el("div", { class: "syncnote" },
+    el("div", {}, el("b", {}, "Your Workbook is saved in the lab. "), "Everything you do in the Workbook tab (formulas, charts, highlights) is saved as you work and recorded when you tap ",
+      el("b", {}, "Submit"), ". You do not need to copy it to Excel or upload a file. Worked in Google Sheets or Excel instead? Paste your file's link at the end of the Answers."),
+    el("button", { class: "btn small", type: "button", onclick: (e) => { store.set(syncKey, true); e.currentTarget.parentElement.remove(); } }, "Got it")) : "";
+  const left = el("div", { class: "pane pane-task" }, syncNote, steps, el("div", { class: "task-sec" }, el("div", { class: "label" }, "Answers"), form));
   const right = needsSheet ? el("div", { class: "pane pane-sheet" }, el("div", { class: "sheethost" })) : null;
 
   // ---- bottom bar
@@ -918,13 +940,51 @@ async function viewActivity(n, actId) {
     toast(`Auto-checked: ${round(score.auto)} of ${round(score.autoMax)} pts` + (score.manualMax ? ` (+${score.manualMax} ${score.manualMax === 1 ? "pt" : "pts"} graded by the trainer)` : ""));
     saveDraft(true);
   });
+  /** True when nothing was done in the Workbook for this activity (no answer cells filled, no chart / ToolPak / highlight made). */
+  const sheetEmpty = (sub, score) => act.parts.every((p) =>
+    p.type === "cells" ? p.cells.every((r) => !sub.cells[r] || String(sub.cells[r].f ?? "").trim() === "") :
+    p.type === "spec" ? !(score.parts[p.id] || {}).frac : true);
+  /** The Workbook is empty: go back to it, share a Google Sheets / Excel link, or submit anyway. Resolves "link", "anyway" or null. */
+  const askEmptySheet = () => new Promise((resolve) => {
+    let done = false, iv = null, m = null;
+    const finish = (v) => { if (done) return; done = true; clearInterval(iv); m && m.close(); resolve(v); };
+    const input = el("input", { type: "url", inputmode: "url", placeholder: "https://docs.google.com/spreadsheets/d/…" });
+    const err = el("p", { class: "small bad" });
+    const withLink = el("button", { class: "btn primary", type: "button" }, "Submit with this link");
+    withLink.addEventListener("click", () => {
+      const v = input.value.trim();
+      if (!/^https:\/\//i.test(v)) { err.textContent = "Paste the full link. It starts with https://"; return; }
+      ans.worklink = v;
+      if (linkInput) linkInput.value = v;
+      touch();
+      finish("link");
+    });
+    const box = el("div", { class: "form" },
+      el("p", {}, "Your ", el("b", {}, "Workbook"), " for this activity is still empty, so the lab cannot check that part."),
+      el("div", { class: "label" }, "Did you work in Google Sheets or Excel?"),
+      el("p", { class: "small muted" }, "Paste the share link of your file. First set its sharing to ", el("b", {}, "Anyone with the link · Viewer"),
+        " (Google Sheets: Share › General access; Excel: Share › Copy link). Your trainer opens it and grades the workbook part."),
+      el("label", {}, "Link to my file", input), err,
+      el("div", { class: "actions" },
+        el("button", { class: "btn", type: "button", onclick: () => { finish(null); showPane("sheet"); } }, "Go to the Workbook"),
+        el("button", { class: "btn", type: "button", onclick: () => finish("anyway") }, "Submit without it"), withLink));
+    m = modal(`Activity ${act.id}: the Workbook is empty`, box);
+    iv = setInterval(() => { if (!document.body.contains(m.box)) finish(null); }, 400);   // closed with X / Esc
+  });
   btnSubmit.addEventListener("click", async () => {
-    const { sub, score } = await evaluate();
-    const manualEmpty = act.parts.filter((p) => p.manual && p.type === "text" && !(ans[p.id] || "").trim()).length;
-    const msg = `Submit Activity ${act.id}?\n\nAuto-checked part: ${round(score.auto)} / ${round(score.autoMax)} pts` +
-      (score.manualMax ? `\nTrainer-graded part: ${score.manualMax} pts` : "") + (manualEmpty ? `\n\nNote: ${manualEmpty} written answer(s) are still empty.` : "") +
-      "\n\nYou can submit again later; the latest submission counts.";
-    if (!confirm(msg)) return;
+    let { sub, score } = await evaluate();
+    if (hasSheetWork && !ans.worklink && sheetEmpty(sub, score)) {
+      const choice = await askEmptySheet();
+      if (!choice) return;
+      if (choice === "link") ({ sub, score } = await evaluate());
+    } else {
+      const manualEmpty = act.parts.filter((p) => p.manual && p.type === "text" && !(ans[p.id] || "").trim()).length;
+      const msg = `Submit Activity ${act.id}?\n\nAuto-checked part: ${round(score.auto)} / ${round(score.autoMax)} pts` +
+        (score.manualMax ? `\nTrainer-graded part: ${score.manualMax} pts` : "") + (ans.worklink ? "\nYour Google Sheets / Excel link is included." : "") +
+        (manualEmpty ? `\n\nNote: ${manualEmpty} written answer(s) are still empty.` : "") +
+        "\n\nYou can submit again later; the latest submission counts.";
+      if (!confirm(msg)) return;
+    }
     showFeedback(score);
     saveLocal.flush();
     const body = { day: tag, act: act.id, final: true, sub, wb: wb ? wb.serialize() : null, client: { auto: score.auto, autoMax: score.autoMax } };
@@ -989,6 +1049,7 @@ function buildSub(act, wb, ans) {
   const refs = act.parts.flatMap((p) => (p.type === "cells" || p.type === "textcells" ? p.cells : []));
   const answers = {};
   for (const p of act.parts) if (ans[p.id] != null) answers[p.id] = ans[p.id];
+  if (ans.worklink) answers.worklink = ans.worklink;                   // worked in Google Sheets / Excel instead
   const textcells = act.parts.filter((p) => p.type === "textcells").flatMap((p) => p.cells);
   const sub = { cells: wb ? wb.cellsFor(refs) : {}, answers, specs: wb ? wb.specs : {} };
   if (textcells.length && wb) sub.answers.insights = textcells.map((r) => String(sub.cells[r]?.v ?? "")).join("\n");
@@ -1373,6 +1434,11 @@ async function openDetail(st, day, item, s, l) {
     (d.final ? `${older ? "Attempt" : "Final submission"} ${new Date(d.final.ts).toLocaleString()} · attempt ${d.final.attempt || d.final.attempts} of ${d.final.attempts}` : "Not submitted yet") +
     (d.live ? ` · live work saved ${timeAgo(d.live.updated)}` : "")), history(d)];
   if (older) kids.push(el("p", { class: "note" }, `You are looking at an older attempt (#${d.final.attempt}). Grades and feedback go on the latest attempt.`));
+  const worklink = String(((payload.sub || {}).answers || {}).worklink || "").trim();
+  if (/^https:\/\//i.test(worklink)) kids.push(el("div", { class: "worklinkbox" },
+    el("div", {}, el("b", {}, "The student worked in Google Sheets or Excel and shared this file:"), el("div", { class: "small mono wl" }, worklink),
+      el("div", { class: "small muted" }, "Open it, check the workbook part, then give those points in the grading box below.")),
+    el("a", { class: "btn primary", href: worklink, target: "_blank", rel: "noopener noreferrer" }, "Open the file")));
   if (item.id === "quiz") {
     const res = d.final && d.final.detail ? d.final.detail.items || {} : {};
     kids.push(el("h3", {}, `Score ${d.final ? d.final.auto + " / " + d.final.autoMax : "—"}`));
@@ -1407,10 +1473,13 @@ async function openDetail(st, day, item, s, l) {
     }
     // grading form
     const manual = act.parts.filter((p) => p.manual);
-    if (manual.length && d.final && !older) {
+    const writtenMax = manual.reduce((s, p) => s + p.points, 0);
+    const gradeMax = Math.max(Number(d.final && d.final.manualMax) || 0, writtenMax);
+    if (gradeMax && d.final && !older) {
+      const what = gradeMax > writtenMax ? "the written answers and the linked workbook" : "the written answers";
       const g = el("form", { class: "form grade" });
-      g.innerHTML = `<h3>Grade the written answers (${manual.reduce((s, p) => s + p.points, 0)} pts)</h3>
-        <label>Points for the written part <input name="pts" type="number" step="0.5" min="0" max="${manual.reduce((s, p) => s + p.points, 0)}" value="${d.final.manual ?? ""}"></label>
+      g.innerHTML = `<h3>Grade ${what} (${gradeMax} pts)</h3>
+        <label>Points for this part <input name="pts" type="number" step="0.5" min="0" max="${gradeMax}" value="${d.final.manual ?? ""}"></label>
         <label>Feedback to the student <textarea name="fb" rows="2">${esc(d.final.feedback || "")}</textarea></label>
         <button class="btn primary" type="submit">Save grade</button>`;
       g.addEventListener("submit", async (e) => {
@@ -1428,6 +1497,9 @@ async function openDetail(st, day, item, s, l) {
         btn.textContent = "Loading the workbook…";
         try { await loadEngine(); } catch (e) { toast(e.message, "bad"); btn.disabled = false; btn.textContent = "Show the student's workbook"; return; }
         btn.remove();
+        const missing = await restoreImports(payload.wb);
+        if (missing.length) host.before(el("p", { class: "note small" }, `The sheet ${missing.join(", ")} could not be rebuilt here, so formulas that use it ` +
+          "show errors in this view. The scores above were checked on the student's phone with the full sheet."));
         const wb = new Workbook(day, payload.wb);
         const marks = {};
         const cp = act.parts.find((p) => p.type === "cells");
@@ -1439,6 +1511,29 @@ async function openDetail(st, day, item, s, l) {
   }
   body.replaceChildren(...kids);
   }
+}
+
+/** Put back the big imported sheets (Day 5.5) that the server could not store, by running the student's saved query again. */
+async function restoreImports(wbData) {
+  const missing = [];
+  const extra = (wbData.extra = wbData.extra || {});
+  const imports = (wbData.specs && wbData.specs.imports) || {};
+  for (const [name, sql] of Object.entries(imports)) {
+    if (extra[name]) continue;
+    try {
+      const r = await runSql(sql);
+      const rows = [r.columns, ...r.rows], cells = {};
+      rows.forEach((row, i) => row.forEach((v, j) => { if (v !== null && v !== undefined) cells[window.WBCore.addr(i, j)] = [v]; }));
+      extra[name] = { name, rows: rows.length, cols: Math.max(1, ...rows.map((x) => x.length)), colW: {}, cells };
+    } catch (e) { missing.push(name); }
+  }
+  // older submissions (before the query was saved): a formula points at a sheet that is not there
+  const known = new Set([...Object.keys(extra), ...Object.keys(imports)]);
+  for (const v of Object.values(wbData.edits || {})) {
+    const m = typeof v === "string" && v.startsWith("=") && v.match(/(Day\d+_[A-Za-z_]+)(?=\[|!)/);
+    if (m && !known.has(m[1]) && !missing.includes(m[1])) missing.push(m[1]);
+  }
+  return missing;
 }
 
 function exportCsv(data, n) {
