@@ -2,6 +2,15 @@
   "_how": "Newest first. When sw.js VERSION changes, add an entry with the SAME v. 'student' items are shown to students in the update window, 'trainer' items on the trainer board. Leave a list empty if that side has nothing new (they then see 'Small fixes and improvements').",
   "versions": [
     {
+      "v": "dal3-lab-v44",
+      "student": [
+        "On a PC keyboard, Ctrl + Arrow now jumps to the end of the data, and Ctrl + Shift + Arrow selects down to it, like in Excel (e.g. click B4, then Ctrl + Shift + Down)."
+      ],
+      "trainer": [
+        "Spreadsheet: Ctrl + Arrow and Ctrl + Shift + Arrow now work like Excel."
+      ]
+    },
+    {
       "v": "dal3-lab-v43",
       "student": [],
       "trainer": [

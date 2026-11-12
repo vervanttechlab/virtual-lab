@@ -312,6 +312,21 @@ export class SheetUI {
     t && t.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
+  /** Excel Ctrl + Arrow: from (r, c) go to the end of this block of filled cells, or to the next filled cell, or to the sheet edge. */
+  dataEdge(r, c, dr, dc) {
+    const { rows, cols } = this.wb.dims(this.sheet);
+    const maxR = Math.max(rows - 1, 0), maxC = Math.max(cols - 1, 0);
+    const inside = (rr, cc) => rr >= 0 && cc >= 0 && rr <= maxR && cc <= maxC;
+    const filled = (rr, cc) => { const v = this.wb.raw(this.sheet, rr, cc); return v !== "" && v !== null && v !== undefined; };
+    if (!inside(r + dr, c + dc)) return [r, c];        // already at the edge
+    if (filled(r, c) && filled(r + dr, c + dc)) {      // inside a block: go to its last filled cell
+      while (inside(r + dr, c + dc) && filled(r + dr, c + dc)) { r += dr; c += dc; }
+      return [r, c];
+    }
+    do { r += dr; c += dc; } while (inside(r + dr, c + dc) && !filled(r, c));
+    return [r, c];                                      // the next filled cell, or the edge of the data area
+  }
+
   // ------------------------------------------------------------------ pointer & keys
   onCellDown(e) {
     const td = e.target.closest("td[data-r]");
@@ -332,12 +347,18 @@ export class SheetUI {
     if (this.opts.readOnly || this.editing) return;
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
     const mv = { ArrowDown: [1, 0], ArrowUp: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Enter: [1, 0], Tab: [0, 1] }[k];
-    if (mv && !ctrl) {
+    if (mv && (!ctrl || k.startsWith("Arrow"))) {
       e.preventDefault();
-      if (e.shiftKey && k.startsWith("Arrow")) {
-        const er = (this.sel.r1 === this.anchor.r ? this.sel.r2 : this.sel.r1) + mv[0];
-        const ec = (this.sel.c1 === this.anchor.c ? this.sel.c2 : this.sel.c1) + mv[1];
+      if (e.shiftKey && k.startsWith("Arrow")) {        // Shift + Arrow grows the selection; with Ctrl it jumps to the data edge
+        const er0 = this.sel.r1 === this.anchor.r ? this.sel.r2 : this.sel.r1;
+        const ec0 = this.sel.c1 === this.anchor.c ? this.sel.c2 : this.sel.c1;
+        const [er, ec] = ctrl ? this.dataEdge(er0, ec0, ...mv) : [er0 + mv[0], ec0 + mv[1]];
         this.select(Math.max(0, er), Math.max(0, ec), true);
+        const t = this.td(er, ec);
+        t && t.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } else if (ctrl) {
+        const [r, c] = this.dataEdge(this.anchor.r, this.anchor.c, ...mv);
+        this.move(r - this.anchor.r, c - this.anchor.c);
       } else this.move(...mv);
       return;
     }

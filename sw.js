@@ -1,5 +1,5 @@
 // Offline support: cache the app shell and day data; the Apps Script API is never cached.
-const VERSION = "dal3-lab-v43";
+const VERSION = "dal3-lab-v44";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css",
   "js/app.js", "js/api.js", "js/config.js", "js/ui.js", "js/workbook.js", "js/grid.js", "js/stats.js",
